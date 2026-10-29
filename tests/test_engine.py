@@ -153,5 +153,46 @@ class GatewayEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(engine._thinking)
 
 
+
+    async def test_legacy_function_call_then_result_keeps_same_chat(self):
+        automation = FakeAutomation(
+            [
+                ' ```tool_call\n{"name":"get_time","arguments":{}}\n```',
+                "Sekarang jam 12:00.",
+            ]
+        )
+        engine = GatewayEngine(automation=automation)
+        function = TOOLS[0]["function"]
+        user = ChatMessage(role="user", content="Jam berapa?")
+        first = await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[user],
+                functions=[function],
+                function_call="auto",
+            )
+        )
+        self.assertEqual(first.finish_reason, "tool_calls")
+        self.assertEqual(first.tool_calls[0]["function"]["name"], "get_time")
+
+        assistant = ChatMessage(
+            role="assistant",
+            content=None,
+            function_call={"name": "get_time", "arguments": "{}"},
+        )
+        function_result = ChatMessage(role="function", name="get_time", content="12:00")
+        second = await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[user, assistant, function_result],
+                functions=[function],
+                function_call="auto",
+            )
+        )
+        self.assertEqual(second.content, "Sekarang jam 12:00.")
+        self.assertEqual(automation.chats, 1)
+        self.assertIn("HASIL FUNCTION legacy", automation.prompts[-1])
+
+
 if __name__ == "__main__":
     unittest.main()
