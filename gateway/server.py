@@ -121,26 +121,10 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
         raise ApiError(400, "messages tidak boleh kosong")
 
     if request.stream:
-        headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-        if not _stream_available(request):
-            # Tool calling memerlukan hasil lengkap untuk mem-parse tool_call.
-            # Jalankan sebelum HTTP streaming dimulai supaya error upstream menjadi
-            # respons 503/504 valid, bukan SSE 200 yang tidak berisi choices.
-            try:
-                result = await engine.complete(request)
-            except asyncio.TimeoutError as exc:
-                raise ApiError(504, f"DeepSeek timeout: {exc}", code="upstream_timeout") from exc
-            except Exception as exc:
-                raise ApiError(503, f"Browser automation gagal: {exc}", code="upstream_error") from exc
-            return StreamingResponse(
-                _stream_result(request, result),
-                media_type="text/event-stream",
-                headers=headers,
-            )
         return StreamingResponse(
             _stream_completion(request),
             media_type="text/event-stream",
-            headers=headers,
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     try:
@@ -208,43 +192,51 @@ def _stream_available(request: ChatRequest) -> bool:
     return not has_tools
 
 
-async def _stream_result(request: ChatRequest, result: Completion):
-    """Serialize a completed result as a valid OpenAI-compatible SSE stream."""
-    completion_id = "chatcmpl-" + secrets.token_hex(12)
-    created = int(time.time())
-    include_usage = bool((request.stream_options or {}).get("include_usage"))
-
-    yield _sse(_chunk(request, completion_id, created, {"role": "assistant", "content": ""}))
-    if result.reasoning:
-        yield _sse(_chunk(request, completion_id, created, {"reasoning_content": result.reasoning}))
-    if result.content:
-        yield _sse(_chunk(request, completion_id, created, {"content": result.content}))
-    if result.tool_calls:
-        deltas = [
-            {
-                "index": index,
-                "id": call["id"],
-                "type": "function",
-                "function": call["function"],
-            }
-            for index, call in enumerate(result.tool_calls)
-        ]
-        yield _sse(_chunk(request, completion_id, created, {"tool_calls": deltas}))
-    yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
-    if include_usage:
-        usage_chunk = _chunk(request, completion_id, created, {}, None)
-        usage_chunk["choices"] = []
-        usage_chunk["usage"] = _usage(request, result)
-        yield _sse(usage_chunk)
-    yield "data: [DONE]\n\n"
-
-
 async def _stream_completion(request: ChatRequest):
-    """Live SSE stream for requests that do not ask the gateway to parse tools."""
+    """OpenAI-compatible SSE; buffer tool calls but always end with valid chunks."""
     completion_id = "chatcmpl-" + secrets.token_hex(12)
     created = int(time.time())
     include_usage = bool((request.stream_options or {}).get("include_usage"))
     yield _sse(_chunk(request, completion_id, created, {"role": "assistant", "content": ""}))
+
+    if not _stream_available(request):
+        # Tool calling needs the complete text so we can parse the gateway tool-call format.
+        try:
+            result = await engine.complete(request)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            message = f"DeepSeek timeout: {exc}" if isinstance(exc, asyncio.TimeoutError) else f"Browser automation gagal: {exc}"
+            # Once SSE starts, return a parseable assistant chunk rather than a raw
+            # JSON error object that some OpenAI-compatible clients treat as no response.
+            yield _sse(_chunk(request, completion_id, created, {"content": f"[open-masking error] {message}"}))
+            yield _sse(_chunk(request, completion_id, created, {}, "stop"))
+            yield "data: [DONE]\n\n"
+            return
+
+        if result.reasoning:
+            yield _sse(_chunk(request, completion_id, created, {"reasoning_content": result.reasoning}))
+        if result.content:
+            yield _sse(_chunk(request, completion_id, created, {"content": result.content}))
+        if result.tool_calls:
+            deltas = [
+                {
+                    "index": index,
+                    "id": call["id"],
+                    "type": "function",
+                    "function": call["function"],
+                }
+                for index, call in enumerate(result.tool_calls)
+            ]
+            yield _sse(_chunk(request, completion_id, created, {"tool_calls": deltas}))
+        yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
+        if include_usage:
+            usage_chunk = _chunk(request, completion_id, created, {}, None)
+            usage_chunk["choices"] = []
+            usage_chunk["usage"] = _usage(request, result)
+            yield _sse(usage_chunk)
+        yield "data: [DONE]\n\n"
+        return
 
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -295,8 +287,6 @@ async def _stream_completion(request: ChatRequest):
             usage_chunk["usage"] = _usage(request, result)
             yield _sse(usage_chunk)
     elif error_message:
-        # Setelah header SSE dikirim, status HTTP tak lagi bisa diubah.
-        # Tetap kirim chunk yang dapat diparse klien chat-completions.
         yield _sse(_chunk(request, completion_id, created, {"content": f"[open-masking error] {error_message}"}))
         yield _sse(_chunk(request, completion_id, created, {}, "stop"))
     yield "data: [DONE]\n\n"
