@@ -45,7 +45,7 @@ Ubah host/port lewat `.env` (`HOST`, `PORT`). Set `DS_OPEN_BROWSER=0` bila tidak
 
 ### Playground
 
-Chat langsung ke DeepSeek lewat browser yang dikelola server. Pilih model, atur thinking (`auto` / aktif / nonaktif), lihat panel **Thinking**, dan mulai percakapan baru dengan **New chat**. Playground tidak memerlukan API key karena hanya bisa diakses dari localhost.
+Chat langsung ke DeepSeek lewat browser yang dikelola server. Playground memakai satu model (`deepseek-chat`) dengan dua mode terpisah: **Deep Think** (`auto` / aktif / nonaktif) dan **Search** (aktif / nonaktif). Playground tidak memerlukan API key karena hanya bisa diakses dari localhost.
 
 ### API Keys
 
@@ -68,22 +68,25 @@ Base URL, daftar model, dan snippet siap salin untuk OpenCode, VS Code, dan cURL
 
 ## Model
 
-| ID | Thinking |
-| --- | --- |
-| `deepseek-chat` | off secara default |
-| `deepseek-reasoner` | on |
-| `deepseek-chat-thinking` | on |
+Gateway menampilkan satu model kanonis: `deepseek-chat`. Mode tidak dibuat sebagai model terpisah, tetapi dikirim sebagai opsi per permintaan.
 
-Thinking juga bisa di-override per request:
+| Opsi | Default | Keterangan |
+| --- | --- | --- |
+| `thinking` | `false` untuk `deepseek-chat` | Mengaktifkan Deep Think pada UI DeepSeek |
+| `search` | `false` | Mengaktifkan tombol Search/pencarian web di UI DeepSeek |
+
+Contoh request:
 
 ```json
-{"thinking": true}
-{"ds_thinking": true}
-{"enable_thinking": true}
-{"reasoning_effort": "high"}
+{
+  "model": "deepseek-chat",
+  "thinking": true,
+  "search": false,
+  "messages": [{"role": "user", "content": "Jelaskan topik ini"}]
+}
 ```
 
-`reasoning_effort: "none"`, `"off"`, `false`, atau `"thinking": false` mematikan thinking. Nama model yang mengandung `reasoner`, `thinking`, `deepseek-r1`, atau `-r1` otomatis memakai thinking.
+Alias `web_search`, `enable_search`, serta `modelOptions.thinking/search` juga diterima untuk menyesuaikan format konfigurasi klien. ID lama `deepseek-reasoner` dan `deepseek-chat-thinking` tetap dipahami sebagai alias kompatibilitas jika masih tersimpan di konfigurasi klien, tetapi tidak lagi ditampilkan sebagai model terpisah.
 
 ## Endpoint
 
@@ -127,16 +130,11 @@ $env:OPEN_MASKING_KEY = "sk-ds-..."
 opencode
 ```
 
-Pilih model `open-masking/deepseek-chat` lewat `/models`. Variant thinking bisa dipakai dengan `#`:
-
-```powershell
-opencode run --model open-masking/deepseek-chat#thinking "Jelaskan HTTP/2"
-opencode run --model open-masking/deepseek-reasoner#none "Jawab singkat"
-```
+Pilih satu model `open-masking/deepseek-chat` lewat `/models`. Gunakan variant `#deepthink`, `#search`, atau `#deepthink-search` untuk mengatur mode tanpa membuat model terpisah.
 
 ### VS Code
 
-Buka Command Palette → **Chat: Manage Language Models**, atau salin `vscode.example.json` ke `chatLanguageModels.json`. Ganti `sk-ds-GANTI_DENGAN_KEY` dengan key kamu, lalu reload window dan buat chat baru.
+Buka Command Palette → **Chat: Manage Language Models**, atau salin `vscode.example.json` ke `chatLanguageModels.json`. Ganti `sk-ds-GANTI_DENGAN_KEY` dengan key kamu, lalu reload window dan buat chat baru. Konfigurasi contoh memakai satu model; ubah `modelOptions.thinking` atau `modelOptions.search` menjadi `true` untuk mengaktifkan mode tersebut.
 
 ### cURL
 
@@ -230,20 +228,26 @@ DS_REASONING_SELECTOR=.ds-think-content
 
 ### `502 No BYOK model found` di VS Code
 
-- Nama provider di `chatLanguageModels.json` berubah setelah chat lama dibuat. Reload window, buat chat baru, lalu pilih model dari provider yang benar.
+- Pastikan konfigurasi hanya mendaftarkan satu model `deepseek-chat`, URL berakhir dengan `/v1/chat/completions`, dan API key masih aktif. Reload window lalu buat chat baru. Untuk mode, atur `modelOptions.thinking` atau `modelOptions.search` di konfigurasi model.
 - Jangan mengganti `name` provider setelah dipakai.
 
-### DeepThink tidak aktif
+### Deep Think atau Search tidak aktif
 
-- Pastikan akun menampilkan toggle `Deep thinking`.
+- Pastikan UI akun DeepSeek menampilkan tombol Deep Think/Search.
 - Set `DS_DEBUG=1` untuk menyimpan screenshot/HTML ke `data/debug`.
-- Override `DS_THINKING_SELECTOR` bila teks UI berubah.
+- Override `DS_THINKING_SELECTOR` atau `DS_SEARCH_SELECTOR` bila label tombol UI berubah.
+
+### VS Code menampilkan `No response was returned`
+
+- Gunakan konfigurasi terbaru dengan satu model `deepseek-chat`, lalu reload window VS Code.
+- Pastikan sesi Browser masih login dan tidak ada captcha/dialog di DeepSeek.
+- Pada request streaming, error otomasi dikirim sebagai chunk assistant yang valid dan ditutup dengan `finish_reason`, bukan objek JSON error mentah di tengah stream yang dapat dianggap klien sebagai respons kosong.
 
 ### Balasan timeout
 
 - Naikkan `DS_REPLY_TIMEOUT`.
 - Pastikan tab DeepSeek tidak menampilkan dialog/captcha.
-- Request dengan tools memang menunggu model selesai sebelum SSE dikirim.
+- Request dengan tools menunggu hasil lengkap agar `tool_call` dapat diparsing.
 
 ## Tes
 

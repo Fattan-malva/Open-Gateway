@@ -17,8 +17,6 @@
 
   const MODEL_LABELS = {
     "deepseek-chat": "DeepSeek Chat (Web)",
-    "deepseek-reasoner": "DeepSeek Reasoner (Web)",
-    "deepseek-chat-thinking": "DeepSeek Chat Thinking (Web)",
   };
 
   /* ---------------- utilities ---------------- */
@@ -399,6 +397,7 @@
     $("#pg-reset").disabled = !enabled;
     $("#pg-model").disabled = !enabled;
     $("#pg-thinking").disabled = !enabled;
+    $("#pg-search").disabled = !enabled;
   }
 
   function handleStreamEvent(event, assistant) {
@@ -443,6 +442,7 @@
         content: message.content,
       })),
       thinking: thinkingValue === "auto" ? null : thinkingValue === "on",
+      search: $("#pg-search").value === "on",
     };
 
     state.streaming = true;
@@ -721,18 +721,12 @@
     const models = connect.models || [];
     const opencodeModels = models
       .map((model) => {
-        let variants = "";
-        if (model === "deepseek-chat") {
-          variants = `,
+        const variants = `,
           "variants": [
-            { "id": "thinking", "body": { "thinking": true } }
+            { "id": "deepthink", "body": { "thinking": true, "search": false } },
+            { "id": "search", "body": { "thinking": false, "search": true } },
+            { "id": "deepthink-search", "body": { "thinking": true, "search": true } }
           ]`;
-        } else if (model === "deepseek-reasoner") {
-          variants = `,
-          "variants": [
-            { "id": "none", "body": { "thinking": false } }
-          ]`;
-        }
         return `        "${model}": {
           "name": "${MODEL_LABELS[model] || model}",
           "capabilities": {
@@ -742,7 +736,7 @@
             "reasoning": { "supported": true }
           },
           "compatibility": { "reasoningField": "reasoning_content" },
-          "limit": { "context": 64000, "output": 8192 }${variants}
+          "limit": { "context": 24000, "output": 8000 }${variants}
         }`;
       })
       .join(",\n");
@@ -773,8 +767,9 @@ ${opencodeModels}
         "url": "${base}/chat/completions",
         "toolCalling": true,
         "vision": false,
-        "maxInputTokens": 60000,
-        "maxOutputTokens": 8000
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "modelOptions": { "thinking": false, "search": false }
       }`
       )
       .join(",\n");
@@ -796,6 +791,8 @@ ${vscodeModels}
   -H "Content-Type: application/json" \\
   -d '{
     "model": "deepseek-chat",
+    "thinking": false,
+    "search": false,
     "messages": [{"role": "user", "content": "Halo"}]
   }'`;
 

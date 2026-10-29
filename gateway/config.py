@@ -11,7 +11,7 @@ except ImportError:
 
 APP_NAME = "open-masking"
 VERSION = "0.2.0"
-MODEL_IDS = ("deepseek-chat", "deepseek-reasoner", "deepseek-chat-thinking")
+MODEL_IDS = ("deepseek-chat",)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -86,5 +86,6 @@ BROWSER_CONFIG_KEYS = {
     "DS_SEND_SELECTOR",
     "DS_STOP_SELECTOR",
     "DS_THINKING_SELECTOR",
+    "DS_SEARCH_SELECTOR",
     "DS_REASONING_SELECTOR",
 }

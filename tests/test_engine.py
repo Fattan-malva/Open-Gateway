@@ -22,6 +22,7 @@ class FakeAutomation:
         self.prompts = []
         self.chats = 0
         self.thinking = []
+        self.search = []
 
     async def new_chat(self, interactive_login=True):
         self.chats += 1
@@ -30,12 +31,14 @@ class FakeAutomation:
         self,
         prompt,
         thinking=None,
+        search=None,
         on_update=None,
         on_reasoning=None,
         interactive_login=True,
     ):
         self.prompts.append(prompt)
         self.thinking.append(thinking)
+        self.search.append(search)
         reply = self.replies.pop(0)
         if on_reasoning:
             on_reasoning("reasoning-delta")
@@ -112,6 +115,34 @@ class GatewayEngineTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertFalse(engine_plain._thinking)
+
+    async def test_search_mode_and_model_options_are_resolved(self):
+        automation = FakeAutomation(["hasil pencarian", "jawaban lanjutan"])
+        engine = GatewayEngine(automation=automation)
+        await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[ChatMessage(role="user", content="Cari berita terbaru")],
+                tools=None,
+                modelOptions={"thinking": True, "search": True},
+            )
+        )
+        self.assertTrue(automation.thinking[-1])
+        self.assertTrue(automation.search[-1])
+
+        await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[
+                    ChatMessage(role="user", content="Cari berita terbaru"),
+                    ChatMessage(role="assistant", content="hasil pencarian"),
+                    ChatMessage(role="user", content="lanjutkan"),
+                ],
+                tools=None,
+                search=False,
+            )
+        )
+        self.assertFalse(automation.search[-1])
 
     async def test_string_thinking_false_is_off(self):
         automation = FakeAutomation(["jawab"])

@@ -68,6 +68,21 @@ THINKING_SELECTORS = _selectors(
         "button:has-text('R1')",
     ),
 )
+SEARCH_SELECTORS = _selectors(
+    "DS_SEARCH_SELECTOR",
+    (
+        "button[aria-label*='search the web' i]",
+        "button[aria-label*='web search' i]",
+        "button[aria-label*='search' i]",
+        "div[class*='ds-toggle-button']:has-text('Search')",
+        "button:has-text('Search')",
+        "[role='button']:has-text('Search')",
+        "button:has-text('联网搜索')",
+        "[role='button']:has-text('联网搜索')",
+        "button:has-text('搜索')",
+        "[role='button']:has-text('搜索')",
+    ),
+)
 REASONING_SELECTORS = _selectors(
     "DS_REASONING_SELECTOR",
     (".ds-think-content", "[class*='ds-think-content']"),
@@ -137,6 +152,8 @@ class DeepSeekBrowserAutomation:
         self.headless = HEADLESS
         self._thinking_applied: Optional[bool] = None
         self._thinking_warned = False
+        self._search_applied: Optional[bool] = None
+        self._search_warned = False
 
     @property
     def running(self) -> bool:
@@ -197,6 +214,7 @@ class DeepSeekBrowserAutomation:
         await self.page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         await self.page.wait_for_timeout(2500)
         self._thinking_applied = None
+        self._search_applied = None
 
         if await self._is_logged_in():
             logger.info("Sesi DeepSeek aktif.")
@@ -293,7 +311,7 @@ class DeepSeekBrowserAutomation:
         await self._ensure_chat_page(interactive_login)
         await self.page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         await self.page.wait_for_timeout(1500)
-        self._thinking_applied = None
+        self._search_applied = None
         if not await self._find_input():
             await self._ensure_chat_page(interactive_login)
 
@@ -332,10 +350,15 @@ class DeepSeekBrowserAutomation:
             return
         toggle = await self._find_thinking_toggle()
         if not toggle:
-            if DEBUG and not self._thinking_warned:
-                self._thinking_warned = True
-                logger.debug("Toggle DeepThink tidak ditemukan; atur DS_THINKING_SELECTOR bila perlu.")
-            self._thinking_applied = enabled
+            if enabled:
+                if DEBUG and not self._thinking_warned:
+                    self._thinking_warned = True
+                    logger.debug("Toggle DeepThink tidak ditemukan; atur DS_THINKING_SELECTOR bila perlu.")
+                raise RuntimeError(
+                    "Mode Deep Think tidak ditemukan pada UI DeepSeek. "
+                    "Periksa tombol Deep Think atau atur DS_THINKING_SELECTOR."
+                )
+            self._thinking_applied = False
             return
 
         state = await self._toggle_state(toggle)
@@ -350,11 +373,49 @@ class DeepSeekBrowserAutomation:
                 return
         self._thinking_applied = enabled
 
+    async def _find_search_toggle(self):
+        for selector in SEARCH_SELECTORS:
+            locator = self.page.locator(selector).first
+            try:
+                if await locator.count() and await locator.is_visible():
+                    return locator
+            except Exception:
+                continue
+        return None
+
+    async def set_search(self, enabled: bool):
+        if self._search_applied is enabled:
+            return
+        toggle = await self._find_search_toggle()
+        if not toggle:
+            if enabled:
+                raise RuntimeError(
+                    "Mode Search tidak ditemukan pada UI DeepSeek. "
+                    "Periksa tombol Search atau atur DS_SEARCH_SELECTOR."
+                )
+            self._search_applied = False
+            return
+
+        state = await self._toggle_state(toggle)
+        should_click = state != enabled if state is not None else (enabled or self._search_applied is True)
+        if should_click:
+            try:
+                await toggle.click()
+                await asyncio.sleep(0.3)
+            except Exception as exc:
+                if DEBUG:
+                    logger.debug("Gagal mengubah mode Search: %s", exc)
+                if enabled:
+                    raise RuntimeError(f"Gagal mengaktifkan mode Search: {exc}") from exc
+                return
+        self._search_applied = enabled
+
     async def send_message(
         self,
         message: str,
         timeout: Optional[int] = None,
         thinking: Optional[bool] = None,
+        search: Optional[bool] = None,
         on_update: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
         interactive_login: bool = True,
@@ -364,6 +425,8 @@ class DeepSeekBrowserAutomation:
 
         if thinking is not None:
             await self.set_thinking(thinking)
+        if search is not None:
+            await self.set_search(search)
 
         input_box = await self._find_input()
         if not input_box:
@@ -376,9 +439,15 @@ class DeepSeekBrowserAutomation:
             await input_box.click()
             await input_box.fill(message)
             await input_box.press("Enter")
-            await asyncio.sleep(1.0)
+            # Tunggu sampai composer kosong atau tombol Stop muncul.
+            # Pada beberapa versi UI, Enter hanya membuat baris baru; gunakan
+            # tombol Send sebagai fallback tanpa mengirim prompt dua kali.
+            for _ in range(12):
+                await asyncio.sleep(0.1)
+                if not (await self._input_text(input_box)).strip() or await self._is_generating():
+                    break
 
-            if (await self._input_text(input_box)).strip():
+            if (await self._input_text(input_box)).strip() and not await self._is_generating():
                 await self._click_send()
 
             return await self._wait_for_reply(

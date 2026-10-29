@@ -57,17 +57,22 @@
           <label class="field inline">
             <span>Model</span>
             <select id="pg-model">
-              <option value="deepseek-chat">deepseek-chat</option>
-              <option value="deepseek-reasoner">deepseek-reasoner</option>
-              <option value="deepseek-chat-thinking">deepseek-chat-thinking</option>
+              <option value="deepseek-chat">DeepSeek Chat (Web)</option>
             </select>
           </label>
           <label class="field inline">
-            <span>Thinking</span>
+            <span>Deep Think</span>
             <select id="pg-thinking">
-              <option value="auto">auto</option>
+              <option value="auto">otomatis</option>
               <option value="on">aktif</option>
               <option value="off">nonaktif</option>
+            </select>
+          </label>
+          <label class="field inline">
+            <span>Search</span>
+            <select id="pg-search">
+              <option value="off">nonaktif</option>
+              <option value="on">aktif</option>
             </select>
           </label>
           <button class="btn ghost" id="pg-reset" title="Mulai percakapan baru">Chat baru</button>
@@ -177,7 +182,7 @@
       <header class="panel-head">
         <div>
           <h1>Connect</h1>
-          <p class="muted">Hubungkan klien ke gateway open-masking.</p>
+          <p class="muted">Satu model DeepSeek Chat dengan mode Deep Think dan Search yang dapat diatur per permintaan.</p>
         </div>
       </header>
 
@@ -208,7 +213,7 @@
 
       <div class="card">
         <div class="card-title">VS Code</div>
-        <p class="muted small">Command Palette → <span class="mono">Chat: Manage Language Models</span>, atau edit <span class="mono">chatLanguageModels.json</span>.</p>
+        <p class="muted small">Gunakan satu model. Mode default diatur lewat <span class="mono">modelOptions.thinking</span> dan <span class="mono">modelOptions.search</span>; set nilainya ke <span class="mono">true</span> untuk mengaktifkan.</p>
         <div class="code-block">
           <button class="btn ghost small copy-abs" data-copy="cn-vscode">Salin</button>
           <pre id="cn-vscode"></pre>

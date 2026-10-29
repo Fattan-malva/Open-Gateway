@@ -1,9 +1,6 @@
 // Contoh custom provider OpenCode V2 untuk open-masking.
-// Salin ke opencode.jsonc proyek (atau config global OpenCode), lalu:
-//   1. jalankan `py main.py`
-//   2. buat API key di tab API Keys
-//   3. set environment: $env:OPEN_MASKING_KEY = "sk-ds-..."
-//   4. buka /models dan pilih open-masking/deepseek-chat
+// Jalankan `py main.py`, buat API key di tab API Keys, lalu set OPEN_MASKING_KEY.
+// Pilih variant #deepthink, #search, atau #deepthink-search sesuai kebutuhan.
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "open-masking/deepseek-chat",
@@ -22,44 +19,15 @@
             "tools": true,
             "input": ["text"],
             "output": ["text"],
-            "reasoning": { "supported": true }
-          },
-          "compatibility": {
-            "reasoningField": "reasoning_content"
-          },
-          "limit": { "context": 64000, "output": 8192 },
-          "variants": [
-            { "id": "thinking", "body": { "thinking": true } }
-          ]
-        },
-        "deepseek-reasoner": {
-          "name": "DeepSeek Reasoner (DeepThink)",
-          "capabilities": {
-            "tools": true,
-            "input": ["text"],
-            "output": ["text"],
             "reasoning": { "supported": true, "toggle": true }
           },
-          "compatibility": {
-            "reasoningField": "reasoning_content"
-          },
-          "limit": { "context": 64000, "output": 8192 },
+          "compatibility": { "reasoningField": "reasoning_content" },
+          "limit": { "context": 24000, "output": 8000 },
           "variants": [
-            { "id": "none", "body": { "thinking": false } }
+            { "id": "deepthink", "body": { "thinking": true, "search": false } },
+            { "id": "search", "body": { "thinking": false, "search": true } },
+            { "id": "deepthink-search", "body": { "thinking": true, "search": true } }
           ]
-        },
-        "deepseek-chat-thinking": {
-          "name": "DeepSeek Chat (Thinking)",
-          "capabilities": {
-            "tools": true,
-            "input": ["text"],
-            "output": ["text"],
-            "reasoning": { "supported": true }
-          },
-          "compatibility": {
-            "reasoningField": "reasoning_content"
-          },
-          "limit": { "context": 64000, "output": 8192 }
         }
       }
     }

@@ -51,6 +51,9 @@ class ChatRequest(BaseModel):
     enable_thinking: Optional[bool] = None
     reasoning_effort: Optional[str] = None
     reasoning: Optional[Any] = None
+    search: Optional[bool] = None
+    web_search: Optional[bool] = None
+    enable_search: Optional[bool] = None
 
 
 @asynccontextmanager
@@ -190,94 +193,103 @@ def _stream_available(request: ChatRequest) -> bool:
 
 
 async def _stream_completion(request: ChatRequest):
+    """OpenAI-compatible SSE; buffer tool calls but always end with valid chunks."""
     completion_id = "chatcmpl-" + secrets.token_hex(12)
     created = int(time.time())
     include_usage = bool((request.stream_options or {}).get("include_usage"))
-
     yield _sse(_chunk(request, completion_id, created, {"role": "assistant", "content": ""}))
 
-    try:
-        if not _stream_available(request):
+    if not _stream_available(request):
+        # Tool calling needs the complete text so we can parse the gateway tool-call format.
+        try:
             result = await engine.complete(request)
-            if result.reasoning:
-                yield _sse(_chunk(request, completion_id, created, {"reasoning_content": result.reasoning}))
-            if result.content:
-                yield _sse(_chunk(request, completion_id, created, {"content": result.content}))
-            if result.tool_calls:
-                deltas = []
-                for index, call in enumerate(result.tool_calls):
-                    deltas.append(
-                        {
-                            "index": index,
-                            "id": call["id"],
-                            "type": "function",
-                            "function": call["function"],
-                        }
-                    )
-                yield _sse(_chunk(request, completion_id, created, {"tool_calls": deltas}))
-            yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
-            if include_usage:
-                usage_chunk = _chunk(request, completion_id, created, {}, None)
-                usage_chunk["choices"] = []
-                usage_chunk["usage"] = _usage(request, result)
-                yield _sse(usage_chunk)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            message = f"DeepSeek timeout: {exc}" if isinstance(exc, asyncio.TimeoutError) else f"Browser automation gagal: {exc}"
+            # Once SSE starts, return a parseable assistant chunk rather than a raw
+            # JSON error object that some OpenAI-compatible clients treat as no response.
+            yield _sse(_chunk(request, completion_id, created, {"content": f"[open-masking error] {message}"}))
+            yield _sse(_chunk(request, completion_id, created, {}, "stop"))
             yield "data: [DONE]\n\n"
             return
 
-        queue: asyncio.Queue = asyncio.Queue()
+        if result.reasoning:
+            yield _sse(_chunk(request, completion_id, created, {"reasoning_content": result.reasoning}))
+        if result.content:
+            yield _sse(_chunk(request, completion_id, created, {"content": result.content}))
+        if result.tool_calls:
+            deltas = [
+                {
+                    "index": index,
+                    "id": call["id"],
+                    "type": "function",
+                    "function": call["function"],
+                }
+                for index, call in enumerate(result.tool_calls)
+            ]
+            yield _sse(_chunk(request, completion_id, created, {"tool_calls": deltas}))
+        yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
+        if include_usage:
+            usage_chunk = _chunk(request, completion_id, created, {}, None)
+            usage_chunk["choices"] = []
+            usage_chunk["usage"] = _usage(request, result)
+            yield _sse(usage_chunk)
+        yield "data: [DONE]\n\n"
+        return
 
-        def on_content(chunk: str):
-            queue.put_nowait(("content", chunk))
+    queue: asyncio.Queue = asyncio.Queue()
 
-        def on_reasoning(chunk: str):
-            queue.put_nowait(("reasoning", chunk))
+    def on_content(chunk: str):
+        queue.put_nowait(("content", chunk))
 
-        async def runner():
-            try:
-                result = await engine.complete(request, on_content=on_content, on_reasoning=on_reasoning)
-                await queue.put(("done", result))
-            except Exception as exc:
-                await queue.put(("error", exc))
+    def on_reasoning(chunk: str):
+        queue.put_nowait(("reasoning", chunk))
 
-        task = asyncio.create_task(runner())
-        result: Optional[Completion] = None
+    async def runner():
         try:
-            while True:
-                kind, payload = await queue.get()
-                if kind == "content":
-                    yield _sse(_chunk(request, completion_id, created, {"content": payload}))
-                elif kind == "reasoning":
-                    yield _sse(_chunk(request, completion_id, created, {"reasoning_content": payload}))
-                elif kind == "error":
-                    error = ApiError(503, f"Browser automation gagal: {payload}", code="upstream_error")
-                    yield _sse(error.to_dict())
-                    break
-                else:
-                    result = payload
-                    break
-        finally:
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except BaseException:
-                pass
+            result = await engine.complete(request, on_content=on_content, on_reasoning=on_reasoning)
+            await queue.put(("done", result))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await queue.put(("error", exc))
 
-        if result is not None:
-            yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
-            if include_usage:
-                usage_chunk = _chunk(request, completion_id, created, {}, None)
-                usage_chunk["choices"] = []
-                usage_chunk["usage"] = _usage(request, result)
-                yield _sse(usage_chunk)
-        yield "data: [DONE]\n\n"
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        error = ApiError(503, f"Browser automation gagal: {exc}", code="upstream_error")
-        yield _sse(error.to_dict())
-        yield "data: [DONE]\n\n"
+    task = asyncio.create_task(runner())
+    result: Optional[Completion] = None
+    error_message: Optional[str] = None
+    try:
+        while True:
+            kind, payload = await queue.get()
+            if kind == "content":
+                yield _sse(_chunk(request, completion_id, created, {"content": payload}))
+            elif kind == "reasoning":
+                yield _sse(_chunk(request, completion_id, created, {"reasoning_content": payload}))
+            elif kind == "error":
+                error_message = f"Browser automation gagal: {payload}"
+                break
+            else:
+                result = payload
+                break
+    finally:
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except BaseException:
+            pass
 
+    if result is not None:
+        yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
+        if include_usage:
+            usage_chunk = _chunk(request, completion_id, created, {}, None)
+            usage_chunk["choices"] = []
+            usage_chunk["usage"] = _usage(request, result)
+            yield _sse(usage_chunk)
+    elif error_message:
+        yield _sse(_chunk(request, completion_id, created, {"content": f"[open-masking error] {error_message}"}))
+        yield _sse(_chunk(request, completion_id, created, {}, "stop"))
+    yield "data: [DONE]\n\n"
 
 # Web UI (didaftarkan terakhir agar /v1 dan /api tetap menang).
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
