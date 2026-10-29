@@ -194,5 +194,25 @@ class GatewayEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("HASIL FUNCTION legacy", automation.prompts[-1])
 
 
+
+    async def test_required_tool_choice_retries_invalid_envelope(self):
+        automation = FakeAutomation(
+            [
+                "Saya akan melihatnya dulu.",
+                '```tool_call\n{"name":"get_time","arguments":{"timezone":"Asia/Jakarta"}}\n```',
+            ]
+        )
+        engine = GatewayEngine(automation=automation)
+        result = await engine.complete(
+            make_request(
+                [ChatMessage(role="user", content="Jam berapa di Jakarta?")],
+                tool_choice="required",
+            )
+        )
+        self.assertEqual(result.finish_reason, "tool_calls")
+        self.assertEqual(result.tool_calls[0]["function"]["name"], "get_time")
+        self.assertEqual(len(automation.prompts), 2)
+        self.assertIn("FORMAT CORRECTION", automation.prompts[-1])
+
 if __name__ == "__main__":
     unittest.main()
