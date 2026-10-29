@@ -138,19 +138,25 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
         functions=request.functions,
         function_call=request.function_call,
     )
-    if tool_choice == "required" and not tools:
-        raise ApiError(400, "tool_choice=required membutuhkan setidaknya satu tool.")
+    tool_names = {
+        fn.get("name")
+        for item in (tools or [])
+        for fn in [(item.get("function") or item) if isinstance(item, dict) else {}]
+        if isinstance(fn, dict) and isinstance(fn.get("name"), str) and fn.get("name")
+    }
+    if tools and not tool_names:
+        raise ApiError(400, "tools harus berisi minimal satu definisi function dengan name yang valid.")
+    if tool_choice == "required" and not tool_names:
+        raise ApiError(400, "tool_choice=required membutuhkan setidaknya satu tool yang valid.")
     if isinstance(tool_choice, str) and tool_choice not in ("auto", "none", "required"):
         raise ApiError(400, f"tool_choice tidak didukung: {tool_choice}")
     if isinstance(tool_choice, dict):
         if tool_choice.get("type") != "function" or not isinstance(tool_choice.get("function"), dict):
             raise ApiError(400, "tool_choice object harus memakai type=function dan field function.")
         selected = tool_choice["function"].get("name")
-        if selected and selected not in {
-            ((item.get("function") or item).get("name"))
-            for item in (tools or [])
-            if isinstance(item, dict) and isinstance(item.get("function", item), dict)
-        }:
+        if not selected:
+            raise ApiError(400, "tool_choice.function.name wajib diisi.")
+        if selected not in tool_names:
             raise ApiError(400, f"Tool yang dipilih tidak terdaftar: {selected}")
 
     if request.stream:
