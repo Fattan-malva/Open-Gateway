@@ -361,6 +361,9 @@
       } catch {}
       if (sources.length >= 6) break;
     }
+    const signature = sources.map((source) => source.url + "|" + source.title).join("\n");
+    if (tray.dataset.signature === signature) return;
+    tray.dataset.signature = signature;
     tray.innerHTML = "";
     tray.classList.toggle("hidden", !sources.length);
     if (!sources.length) return;
