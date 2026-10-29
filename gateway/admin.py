@@ -49,6 +49,7 @@ class PlaygroundRequest(BaseModel):
     model: str = "deepseek-chat"
     messages: List[PlaygroundMessage]
     thinking: Optional[bool] = None
+    search: Optional[bool] = False
 
 
 class ConfirmRequest(BaseModel):
@@ -159,6 +160,7 @@ def create_router(engine: GatewayEngine) -> APIRouter:
                 for message in body.messages
             ],
             "thinking": body.thinking,
+            "search": body.search,
             "tools": None,
             "tool_choice": None,
             "parallel_tool_calls": None,
