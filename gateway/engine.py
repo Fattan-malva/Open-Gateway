@@ -12,6 +12,7 @@ from .tools import (
     parse_tool_calls,
     tool_instruction,
     tools_signature,
+    normalize_tool_request,
 )
 
 THINKING_OFF_VALUES = {"none", "off", "0", "false", "disabled", "no"}
@@ -35,17 +36,19 @@ def _normalize_messages(messages) -> list:
     normalized = []
     for message in messages:
         tool_calls = _field(message, "tool_calls", None) or []
+        function_call = _field(message, "function_call", None)
         normalized.append(
             {
                 "role": _field(message, "role", "user"),
                 "content": content_to_text(_field(message, "content", None)),
                 "tool_calls": [dict(call) if isinstance(call, dict) else call for call in tool_calls],
+                "function_call": dict(function_call) if isinstance(function_call, dict) else function_call,
                 "tool_call_id": _field(message, "tool_call_id", None),
                 "name": _field(message, "name", None),
+                "reasoning_content": _field(message, "reasoning_content", None),
             }
         )
     return normalized
-
 
 def _state_message(message: dict) -> dict:
     """Bentuk yang dibandingkan untuk mendeteksi lanjutan percakapan."""
@@ -53,10 +56,11 @@ def _state_message(message: dict) -> dict:
         "role": message.get("role") or "user",
         "content": message.get("content") or "",
         "tool_calls": message.get("tool_calls") or [],
+        "function_call": message.get("function_call"),
         "tool_call_id": message.get("tool_call_id"),
         "name": message.get("name"),
+        "reasoning_content": message.get("reasoning_content"),
     }
-
 
 def _render_message(message: dict) -> str:
     role = message.get("role") or "user"
@@ -68,15 +72,20 @@ def _render_message(message: dict) -> str:
         calls = format_tool_calls_for_history(message.get("tool_calls"))
         if calls:
             parts.append("[TOOL CALL]\n" + calls)
+        legacy_call = message.get("function_call")
+        if isinstance(legacy_call, dict) and legacy_call.get("name"):
+            parts.append("[FUNCTION CALL - legacy]\n" + json.dumps(legacy_call, ensure_ascii=False))
         return "\n".join(parts) or "[jawaban kosong]"
     if role == "tool":
         cid = message.get("tool_call_id") or "-"
         name = message.get("name") or "-"
         return f"[HASIL TOOL call_id={cid} name={name}]\n{content}"
-    if role == "system":
+    if role == "function":
+        name = message.get("name") or "-"
+        return f"[HASIL FUNCTION legacy name={name}]\n{content}"
+    if role in ("system", "developer"):
         return content
     return content
-
 
 def _truncate_messages(messages: list, budget: int) -> list:
     if budget <= 0:
@@ -434,12 +443,16 @@ class GatewayEngine:
         messages = _normalize_messages(_field(request, "messages", []) or [])
         if not messages:
             raise ValueError("messages tidak boleh kosong")
-        if not any(message["role"] in ("user", "tool") for message in messages):
+        if not any(message["role"] in ("user", "tool", "function") for message in messages):
             raise ValueError("Tidak ada pesan user/tool")
 
-        tools = _field(request, "tools", None)
-        tool_choice = _field(request, "tool_choice", None)
-        parallel = _field(request, "parallel_tool_calls", None)
+        tools, tool_choice, parallel, legacy_functions = normalize_tool_request(
+            tools=_field(request, "tools", None),
+            tool_choice=_field(request, "tool_choice", None),
+            parallel=_field(request, "parallel_tool_calls", None),
+            functions=_field(request, "functions", None),
+            function_call=_field(request, "function_call", None),
+        )
         tools_sig = tools_signature(tools)
 
         incoming_state = [_state_message(message) for message in messages]
@@ -472,16 +485,25 @@ class GatewayEngine:
             on_reasoning=on_reasoning,
             interactive_login=False,
         )
-        content, tool_calls = parse_tool_calls(result.text, tools, tool_choice)
+        content, tool_calls = parse_tool_calls(result.text, tools, tool_choice, parallel)
         reasoning = result.reasoning if thinking and result.reasoning else None
 
         assistant = {
             "role": "assistant",
             "content": content or "",
             "tool_calls": tool_calls,
+            "function_call": None,
             "tool_call_id": None,
             "name": None,
+            "reasoning_content": reasoning,
         }
+        if legacy_functions and tool_calls:
+            first = tool_calls[0]["function"]
+            assistant["tool_calls"] = []
+            assistant["function_call"] = {
+                "name": first["name"],
+                "arguments": first["arguments"],
+            }
         self._sent_messages = incoming_state + [_state_message(assistant)]
         self._tools_sig = tools_sig
         self._thinking = thinking
