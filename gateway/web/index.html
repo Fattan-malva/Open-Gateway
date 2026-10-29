@@ -53,36 +53,17 @@
           <h1>Playground</h1>
           <p class="muted">Uji gateway langsung dari browser. Tidak perlu API key.</p>
         </div>
-        <div class="row gap wrap">
-          <label class="field inline">
-            <span>Model</span>
-            <select id="pg-model">
-              <option value="deepseek-chat">DeepSeek Chat (Web)</option>
-            </select>
-          </label>
-          <label class="field inline">
-            <span>Deep Think</span>
-            <select id="pg-thinking">
-              <option value="auto">otomatis</option>
-              <option value="on">aktif</option>
-              <option value="off">nonaktif</option>
-            </select>
-          </label>
-          <label class="field inline">
-            <span>Search</span>
-            <select id="pg-search">
-              <option value="off">nonaktif</option>
-              <option value="on">aktif</option>
-            </select>
-          </label>
-          <button class="btn ghost" id="pg-reset" title="Mulai percakapan baru">Chat baru</button>
+        <div class="playground-head-actions">
+          <span class="pg-model-label"><i data-lucide="sparkles"></i> DeepSeek</span>
+          <button class="btn ghost" id="pg-reset" title="Mulai percakapan baru"><i data-lucide="square-pen"></i> Chat baru</button>
         </div>
       </header>
 
       <div class="chat" id="pg-chat">
         <div class="empty" id="pg-empty">
-          <h2>Mulai percakapan</h2>
-          <p class="muted">Pesan dikirim ke chat.deepseek.com lewat Chrome yang dikelola server ini.</p>
+          <div class="empty-mark"><i data-lucide="waves"></i></div>
+          <h2>Hi, saya DeepSeek</h2>
+          <p class="muted">Apa yang ingin kamu ketahui hari ini?</p>
           <div class="suggestions">
             <button class="chip" data-prompt="Jelaskan cara kerja API OpenAI-compatible secara singkat.">Jelaskan API</button>
             <button class="chip" data-prompt="Tulis fungsi Python untuk membaca file JSON dengan aman.">Tulis kode</button>
@@ -92,11 +73,19 @@
         <div class="messages" id="pg-messages"></div>
       </div>
 
-      <form class="composer" id="pg-form">
-        <textarea id="pg-input" rows="1" placeholder="Tulis pesan… (Enter kirim, Shift+Enter baris baru)"></textarea>
-        <button class="btn primary" id="pg-send" type="submit">Kirim</button>
-      </form>
-      <div class="chat-status small" id="pg-status"></div>
+      <div class="composer-shell">
+        <form class="composer" id="pg-form">
+          <textarea id="pg-input" rows="1" placeholder="Message DeepSeek" aria-label="Message DeepSeek"></textarea>
+          <div class="composer-toolbar">
+            <div class="composer-modes">
+              <button class="mode-chip" id="pg-thinking" type="button" aria-pressed="false" title="Aktifkan DeepThink"><i data-lucide="brain"></i><span>DeepThink</span></button>
+              <button class="mode-chip" id="pg-search" type="button" aria-pressed="false" title="Aktifkan pencarian web"><i data-lucide="globe"></i><span>Search</span></button>
+            </div>
+            <button class="send-button" id="pg-send" type="submit" aria-label="Kirim pesan" title="Kirim pesan"><i data-lucide="arrow-up"></i></button>
+          </div>
+        </form>
+      </div>
+      <div class="chat-status small" id="pg-status" aria-live="polite"></div>
     </section>
 
     <!-- KEYS -->

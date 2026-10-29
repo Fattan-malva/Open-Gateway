@@ -272,7 +272,7 @@
       thinking = document.createElement("details");
       thinking.className = "thinking hidden";
       thinking.innerHTML =
-        '<summary>Proses berpikir</summary><div class="thinking-body"></div>';
+        '<summary><span class="thinking-label">Thinking</span><span class="thinking-meta"></span><i data-lucide="chevron-down"></i></summary><div class="thinking-body"></div>';
       bubble.appendChild(thinking);
     }
 
@@ -280,8 +280,12 @@
     content.className = "content";
     bubble.appendChild(content);
 
+    const sources = document.createElement("div");
+    sources.className = "source-tray hidden";
+    bubble.appendChild(sources);
+
     wrapper.append(avatar, bubble);
-    return { wrapper, bubble, content, thinking };
+    return { wrapper, bubble, content, thinking, sources };
   }
 
   /* Teks yang tampil. Saat streaming, tampilan mengejar isi penuh secara bertahap. */
@@ -314,10 +318,11 @@
 
   function renderMessage(message) {
     if (!message.el) message.el = createMessageElement(message);
-    const { content, thinking } = message.el;
+    const { content, thinking, sources } = message.el;
 
     const text = visibleText(message);
     content.innerHTML = text ? renderMarkdown(text) : "";
+    if (sources) renderSourceCards(sources, content);
 
     if (state.streaming && message.role === "assistant" && !message.done) {
       const caret = document.createElement("span");
@@ -331,11 +336,58 @@
       if (message.reasoning) {
         thinking.classList.remove("hidden");
         $(".thinking-body", thinking).textContent = message.reasoning;
+        const label = $(".thinking-label", thinking);
+        const meta = $(".thinking-meta", thinking);
+        if (label) label.textContent = message.done ? "Thought process" : "Thinking";
+        if (meta) meta.textContent = message.done ? "selesai" : "sedang berlangsung";
+        if (state.streaming && !message.done) thinking.open = true;
       } else {
         thinking.classList.add("hidden");
       }
     }
     return message.el.wrapper;
+  }
+
+  function renderSourceCards(tray, content) {
+    const seen = new Set(), sources = [];
+    for (const anchor of content.querySelectorAll("a[href]")) {
+      try {
+        const url = new URL(anchor.href);
+        if (!["http:", "https:"].includes(url.protocol) || url.hostname === location.hostname) continue;
+        const key = url.origin + url.pathname;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        sources.push({url:url.href,host:url.hostname.replace(/^www\./,""),title:(anchor.textContent||"").trim()||url.hostname});
+      } catch {}
+      if (sources.length >= 6) break;
+    }
+    const signature = sources.map((source) => source.url + "|" + source.title).join("\n");
+    if (tray.dataset.signature === signature) return;
+    tray.dataset.signature = signature;
+    tray.innerHTML = "";
+    tray.classList.toggle("hidden", !sources.length);
+    if (!sources.length) return;
+    const label = document.createElement("div");
+    label.className = "source-tray-label";
+    label.textContent = "Referensi web";
+    tray.appendChild(label);
+    const list = document.createElement("div");
+    list.className = "source-cards";
+    for (const source of sources) {
+      const card = document.createElement("a");
+      card.className = "source-card"; card.href = source.url; card.target = "_blank"; card.rel = "noopener noreferrer";
+      const icon = document.createElement("img");
+      icon.className = "source-favicon"; icon.alt = ""; icon.loading = "lazy";
+      icon.src = "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(source.host) + "&sz=64";
+      icon.onerror = () => { icon.hidden = true; };
+      const copy = document.createElement("span"); copy.className = "source-card-copy";
+      const title = document.createElement("strong"); title.textContent = source.title;
+      const host = document.createElement("small"); host.textContent = source.host;
+      copy.append(title,host);
+      const ext = document.createElement("i"); ext.setAttribute("data-lucide","arrow-up-right");
+      card.append(icon,copy,ext); list.appendChild(card);
+    }
+    tray.appendChild(list); refreshIcons();
   }
 
   function addMessage(message, forceScroll = true) {
@@ -395,10 +447,21 @@
     $("#pg-send").disabled = !enabled;
     $("#pg-input").disabled = !enabled;
     $("#pg-reset").disabled = !enabled;
-    $("#pg-model").disabled = !enabled;
     $("#pg-thinking").disabled = !enabled;
     $("#pg-search").disabled = !enabled;
   }
+
+  function bindModeToggle(id) {
+    const button = $("#" + id);
+    button.addEventListener("click", () => {
+      const active = button.getAttribute("aria-pressed") === "true";
+      button.setAttribute("aria-pressed", String(!active));
+      button.classList.toggle("is-active", !active);
+      button.title = (id === "pg-thinking" ? "DeepThink" : "Search") + (!active ? " aktif" : " nonaktif");
+    });
+  }
+  bindModeToggle("pg-thinking");
+  bindModeToggle("pg-search");
 
   function handleStreamEvent(event, assistant) {
     if (!event || !event.type) return;
@@ -434,15 +497,14 @@
     };
     addMessage(assistant);
 
-    const thinkingValue = $("#pg-thinking").value;
     const payload = {
-      model: $("#pg-model").value,
+      model: "deepseek-chat",
       messages: state.messages.map((message) => ({
         role: message.role,
         content: message.content,
       })),
-      thinking: thinkingValue === "auto" ? null : thinkingValue === "on",
-      search: $("#pg-search").value === "on",
+      thinking: $("#pg-thinking").getAttribute("aria-pressed") === "true",
+      search: $("#pg-search").getAttribute("aria-pressed") === "true",
     };
 
     state.streaming = true;
