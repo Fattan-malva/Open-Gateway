@@ -1,5 +1,6 @@
 """Mesin percakapan: menyusun prompt, mengelola sesi browser, dan tool calling."""
 import asyncio
+import json
 import shutil
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -59,7 +60,6 @@ def _state_message(message: dict) -> dict:
         "function_call": message.get("function_call"),
         "tool_call_id": message.get("tool_call_id"),
         "name": message.get("name"),
-        "reasoning_content": message.get("reasoning_content"),
     }
 
 def _render_message(message: dict) -> str:
@@ -160,7 +160,7 @@ def render_full_prompt(messages: list, tools, tool_choice, parallel: Optional[bo
         blocks.append("[RIWAYAT PERCAKAPAN]\n" + "\n\n".join(rendered_history))
 
     blocks.append(f"[PESAN SAAT INI - {current.get('role', 'user').upper()}]\n{_render_message(current)}")
-    if current.get("role") == "tool":
+    if current.get("role") in ("tool", "function"):
         blocks.append(
             "[INSTRUKSI AKHIR]\nGunakan hasil tool di atas untuk melanjutkan. "
             "Jangan mengulang pemanggilan tool yang sama kecuali memang diperlukan."
