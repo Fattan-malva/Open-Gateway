@@ -75,7 +75,7 @@ class ParseToolCallsTests(unittest.TestCase):
 
 
     def test_malformed_arguments_are_not_returned_as_fake_raw_objects(self):
-        raw = ' ```tool_call\n{"name":"get_time","arguments":"{bad json}"}\n```'
+        raw = '```tool_call\n{"name":"get_time","arguments":"{bad json}"}\n```'
         text, calls = parse_tool_calls(raw, TOOLS, "auto")
         self.assertEqual(calls, [])
         self.assertEqual(text, raw)
