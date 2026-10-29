@@ -75,13 +75,13 @@ class ParseToolCallsTests(unittest.TestCase):
 
 
     def test_malformed_arguments_are_not_returned_as_fake_raw_objects(self):
-        raw = ' ```tool_call\\n{"name":"get_time","arguments":"{bad json}"}\\n```'
+        raw = ' ```tool_call\n{"name":"get_time","arguments":"{bad json}"}\n```'
         text, calls = parse_tool_calls(raw, TOOLS, "auto")
         self.assertEqual(calls, [])
         self.assertEqual(text, raw)
 
     def test_forced_tool_choice_filters_other_tools(self):
-        raw = '```tool_call\\n{"name":"get_time","arguments":{}}\\n```'
+        raw = '```tool_call\n{"name":"get_time","arguments":{}}\n```'
         choice = {"type": "function", "function": {"name": "other_tool"}}
         text, calls = parse_tool_calls(raw, TOOLS, choice)
         self.assertEqual(calls, [])
@@ -89,8 +89,8 @@ class ParseToolCallsTests(unittest.TestCase):
 
     def test_parallel_false_returns_only_one_call(self):
         raw = (
-            '```tool_call\\n{"name":"get_time","arguments":{}}\\n```\\n'
-            '```tool_call\\n{"name":"get_time","arguments":{"zone":"WIB"}}\\n```'
+            '```tool_call\n{"name":"get_time","arguments":{}}\n```\n'
+            '```tool_call\n{"name":"get_time","arguments":{"zone":"WIB"}}\n```'
         )
         _, calls = parse_tool_calls(raw, TOOLS, "auto", parallel=False)
         self.assertEqual(len(calls), 1)
