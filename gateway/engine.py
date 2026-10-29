@@ -486,6 +486,41 @@ class GatewayEngine:
             interactive_login=False,
         )
         content, tool_calls = parse_tool_calls(result.text, tools, tool_choice, parallel)
+
+        forced_tool = tool_choice == "required" or (
+            isinstance(tool_choice, dict)
+            and bool((tool_choice.get("function") or {}).get("name"))
+        )
+        if tools and forced_tool and not tool_calls:
+            # Strict choices must not silently degrade into a normal text answer.
+            # The underlying website has no native tool-call channel, so ask once
+            # for a corrected envelope and only return it if the parser validates it.
+            correction = (
+                "[TOOL CALL FORMAT CORRECTION]\n"
+                "Your previous answer did not contain a valid tool call. Re-read the original user request and the function definitions below. "
+                "Return only one complete tool_call block with a registered function name and arguments as a valid JSON object. "
+                "Do not answer in natural language and do not invent tool results.\n\n"
+                + tool_instruction(tools, tool_choice, parallel)
+            )
+            retry = await automation.send_message(
+                correction,
+                thinking=thinking,
+                search=search,
+                on_update=None,
+                on_reasoning=None,
+                interactive_login=False,
+            )
+            retry_content, retry_calls = parse_tool_calls(
+                retry.text, tools, tool_choice, parallel
+            )
+            if not retry_calls:
+                raise RuntimeError(
+                    "DeepSeek tidak menghasilkan tool call valid setelah satu percobaan koreksi; "
+                    "coba tool_choice=auto atau perjelas deskripsi/schema tool."
+                )
+            result = retry
+            content, tool_calls = retry_content, retry_calls
+
         reasoning = result.reasoning if thinking and result.reasoning else None
 
         assistant = {
