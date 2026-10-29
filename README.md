@@ -157,7 +157,7 @@ Gateway menerima definisi fungsi modern tools, tool_choice (auto, none, required
 
 Contoh definisi tool:
 
-\`\`\`json
+```json
 {
   "model": "deepseek-chat",
   "messages": [{"role": "user", "content": "Cari waktu sekarang di Jakarta."}],
@@ -175,7 +175,7 @@ Contoh definisi tool:
   }],
   "tool_choice": "auto"
 }
-\`\`\`
+```
 
 **Batasan penting:** project ini mengendalikan chat.deepseek.com lewat browser, bukan memanggil endpoint inference resmi DeepSeek. Karena UI web tersebut tidak menyediakan kanal tool-call native yang dipakai API, gateway meminta model menulis blok tool-call lalu mem-parsenya menjadi format OpenAI. Parser memvalidasi nama tool dan sintaks JSON object, tetapi tidak menjamin kepatuhan penuh terhadap setiap JSON Schema atau strict mode; hasilnya tidak bisa dijamin identik dengan tool calling native API. Gunakan client yang mendukung endpoint POST /v1/chat/completions; endpoint Responses API belum diimplementasikan. Gateway hanya mengeluarkan satu choice (n=1).
 
