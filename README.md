@@ -241,7 +241,7 @@ DS_REASONING_SELECTOR=.ds-think-content
 
 - Gunakan konfigurasi terbaru dengan satu model `deepseek-chat`, lalu reload window VS Code.
 - Pastikan sesi Browser masih login dan tidak ada captcha/dialog di DeepSeek.
-- Untuk request dengan tools, gateway mengembalikan HTTP error yang valid sebelum stream dimulai jika otomasi gagal; ini menghindari stream 200 kosong yang tidak dapat dibaca klien.
+- Pada request streaming, error otomasi dikirim sebagai chunk assistant yang valid dan ditutup dengan `finish_reason`, bukan objek JSON error mentah di tengah stream yang dapat dianggap klien sebagai respons kosong.
 
 ### Balasan timeout
 
