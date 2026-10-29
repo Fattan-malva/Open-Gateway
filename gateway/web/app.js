@@ -736,7 +736,7 @@
             "reasoning": { "supported": true }
           },
           "compatibility": { "reasoningField": "reasoning_content" },
-          "limit": { "context": 64000, "output": 8192 }${variants}
+          "limit": { "context": 24000, "output": 8000 }${variants}
         }`;
       })
       .join(",\n");
