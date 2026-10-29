@@ -161,7 +161,7 @@ def _coerce_calls(obj: Any, allowed: set) -> list:
             continue
         fn = item.get("function") if isinstance(item.get("function"), dict) else item
         name = fn.get("name") or item.get("tool") or item.get("tool_name")
-        if not name or (allowed and name not in allowed):
+        if not name or name not in allowed:
             continue
 
         args = fn.get("arguments", fn.get("parameters", fn.get("args", item.get("arguments", {}))))
