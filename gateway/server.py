@@ -128,6 +128,8 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
         raise ApiError(400, "Gateway browser hanya menghasilkan satu choice; gunakan n=1.")
     if request.tools and request.functions:
         raise ApiError(400, "Gunakan tools (format modern) atau functions (format lama), jangan keduanya sekaligus.")
+    if request.function_call is not None and not request.functions:
+        raise ApiError(400, "function_call membutuhkan functions; gunakan tool_choice bersama tools untuk format modern.")
 
     tools, tool_choice, _, _ = normalize_tool_request(
         tools=request.tools,
@@ -136,8 +138,14 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
         functions=request.functions,
         function_call=request.function_call,
     )
+    if tool_choice == "required" and not tools:
+        raise ApiError(400, "tool_choice=required membutuhkan setidaknya satu tool.")
+    if isinstance(tool_choice, str) and tool_choice not in ("auto", "none", "required"):
+        raise ApiError(400, f"tool_choice tidak didukung: {tool_choice}")
     if isinstance(tool_choice, dict):
-        selected = (tool_choice.get("function") or {}).get("name")
+        if tool_choice.get("type") != "function" or not isinstance(tool_choice.get("function"), dict):
+            raise ApiError(400, "tool_choice object harus memakai type=function dan field function.")
+        selected = tool_choice["function"].get("name")
         if selected and selected not in {
             ((item.get("function") or item).get("name"))
             for item in (tools or [])
@@ -164,7 +172,20 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
 
 def _usage(request: ChatRequest, result: Completion) -> dict:
     prompt_chars = sum(len(content_to_text(message.content)) for message in request.messages)
-    completion_chars = len(result.content or "") + len(result.reasoning or "")
+    tools, _, _, _ = normalize_tool_request(
+        tools=request.tools,
+        functions=request.functions,
+        tool_choice=request.tool_choice,
+        parallel=request.parallel_tool_calls,
+        function_call=request.function_call,
+    )
+    prompt_chars += len(json.dumps(tools or [], ensure_ascii=False))
+    tool_chars = sum(
+        len((call.get("function") or {}).get("name", ""))
+        + len((call.get("function") or {}).get("arguments", ""))
+        for call in (result.tool_calls or [])
+    )
+    completion_chars = len(result.content or "") + len(result.reasoning or "") + tool_chars
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = max(1, completion_chars // 4)
     return {
