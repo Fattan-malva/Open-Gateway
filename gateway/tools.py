@@ -50,41 +50,83 @@ def tools_signature(tools: Optional[list]) -> str:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
+def normalize_tool_request(
+    tools: Optional[list] = None,
+    tool_choice: Any = None,
+    parallel: Optional[bool] = None,
+    functions: Optional[list] = None,
+    function_call: Any = None,
+) -> tuple:
+    """Normalize modern tools and legacy functions into one internal shape.
+
+    Returns (tools, tool_choice, parallel_tool_calls, legacy_functions).
+    The legacy format is kept only at the API boundary; the engine always
+    receives standard OpenAI tool definitions.
+    """
+    legacy = not tools and bool(functions)
+    if legacy:
+        tools = [
+            {"type": "function", "function": item}
+            for item in (functions or [])
+            if isinstance(item, dict) and item.get("name")
+        ]
+        if tool_choice is None:
+            if function_call == "none":
+                tool_choice = "none"
+            elif isinstance(function_call, dict) and function_call.get("name"):
+                tool_choice = {
+                    "type": "function",
+                    "function": {"name": function_call["name"]},
+                }
+            else:
+                tool_choice = "auto"
+        if parallel is None:
+            parallel = False
+    return tools, tool_choice, parallel, legacy
+
+
+def _forced_tool_name(tool_choice: Any) -> Optional[str]:
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function")
+        if isinstance(function, dict):
+            return function.get("name")
+    return None
+
+
 def tool_instruction(tools: Optional[list], tool_choice: Any = None, parallel: Optional[bool] = None) -> str:
     definitions = _tool_definitions(tools)
-    if not definitions:
+    if not definitions or tool_choice == "none":
         return ""
 
-    forced_name = None
-    required = False
-    if isinstance(tool_choice, str):
-        required = tool_choice == "required"
-    elif isinstance(tool_choice, dict):
-        forced_name = (tool_choice.get("function") or {}).get("name")
-        required = bool(forced_name) or tool_choice.get("type") == "required"
+    forced_name = _forced_tool_name(tool_choice)
+    if forced_name:
+        definitions = [item for item in definitions if item.get("name") == forced_name]
 
+    required = tool_choice == "required" or bool(forced_name)
     lines = [
-        "[KEMAMPUAN TOOL CALLING]",
-        "Anda dapat memanggil fungsi berikut saat diperlukan:",
+        "[KEMAMPUAN TOOL CALLING - KONTRAK OPENAI]",
+        "Tool adalah fungsi eksternal milik aplikasi pemanggil. Anda hanya meminta pemanggilan; jangan mengaku sudah menjalankannya.",
+        "Pilih nama fungsi persis seperti definisi dan isi arguments sebagai satu objek JSON valid sesuai schema parameters.",
+        "Definisi fungsi yang tersedia:",
         json.dumps(definitions, ensure_ascii=False, separators=(",", ":")),
         "",
-        "Format pemanggilan yang WAJIB dipakai (boleh satu atau beberapa blok):",
+        "Jika perlu memanggil tool, keluarkan satu blok berikut untuk SETIAP tool call dan jangan menulis Markdown lain di dalam blok:",
         "```tool_call",
         '{"name":"nama_tool","arguments":{"arg":"nilai"}}',
         "```",
         "",
-        "- Tulis blok tool_call saja, tanpa teks pembuka/penutup, jika ingin memanggil tool.",
-        "- Jangan mengarang hasil tool. Hasil akan dikirim pada pesan berikutnya.",
-        "- Jika tidak perlu memanggil tool, jawab langsung tanpa blok tool_call.",
+        "Jangan membuat-buat hasil tool. Klien akan mengeksekusi tool lalu mengirim hasil dengan role=tool dan tool_call_id.",
+        "Jika tidak perlu tool, jawab normal dengan teks biasa.",
     ]
     if parallel is False:
-        lines.append("- Panggil satu tool per balasan.")
+        lines.append("Keluarkan maksimal satu tool call pada balasan ini.")
+    else:
+        lines.append("Anda boleh mengeluarkan beberapa blok tool_call jika beberapa tool memang diperlukan.")
     if required:
-        lines.append("- Anda WAJIB memanggil minimal satu tool pada balasan ini.")
+        lines.append("Balasan ini WAJIB berupa tool call, bukan jawaban teks biasa.")
     if forced_name:
-        lines.append(f"- Tool yang wajib dipanggil: {forced_name}.")
+        lines.append(f"Gunakan tool yang dipaksa ini saja: {forced_name}.")
     return "\n".join(lines)
-
 
 def _args_to_obj(arguments: Any) -> Any:
     if isinstance(arguments, (dict, list)):
@@ -117,20 +159,34 @@ def _coerce_calls(obj: Any, allowed: set) -> list:
             continue
         fn = item.get("function") if isinstance(item.get("function"), dict) else item
         name = fn.get("name") or item.get("tool") or item.get("tool_name")
-        if not name:
+        if not name or (allowed and name not in allowed):
             continue
-        if allowed and name not in allowed:
-            continue
+
         args = fn.get("arguments", fn.get("parameters", fn.get("args", item.get("arguments", {}))))
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                # Never wrap malformed arguments in a fake {"raw": ...} object:
+                # agent clients expect arguments to be valid JSON.
+                continue
+        # OpenAI function arguments are JSON objects in the standard tool schema.
+        if args is None:
+            args = {}
+        if not isinstance(args, dict):
+            continue
+
         calls.append(
             {
                 "id": item.get("id") or "call_" + uuid.uuid4().hex[:24],
                 "type": "function",
-                "function": {"name": name, "arguments": _arguments_to_json(args)},
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(args, ensure_ascii=False, separators=(",", ":")),
+                },
             }
         )
     return calls
-
 
 def _json_candidates(raw: str) -> Any:
     raw = raw.strip()
@@ -154,17 +210,24 @@ def parse_tool_calls(
     text: str,
     tools: Optional[list],
     tool_choice: Any = None,
+    parallel: Optional[bool] = None,
 ) -> Tuple[Optional[str], list]:
-    """Pisahkan teks biasa dari blok tool_call."""
+    """Extract valid OpenAI function calls from the browser-rendered answer."""
     text = text or ""
     if not tools or tool_choice == "none":
         cleaned = text.strip()
         return (cleaned or None), []
 
-    allowed = {item.get("name") for item in _tool_definitions(tools) if item.get("name")}
+    definitions = _tool_definitions(tools)
+    allowed = {item.get("name") for item in definitions if item.get("name")}
+    forced_name = _forced_tool_name(tool_choice)
+    if forced_name:
+        allowed.intersection_update({forced_name})
+
     calls = []
     spans = []
-
+    # Recognize the explicitly requested envelope formats, but only accept valid
+    # JSON objects whose function names are present in the request.
     for pattern in (_TOOL_BLOCK_RE, _TOOL_XML_RE, _TOOL_TAG_RE):
         for match in pattern.finditer(text):
             parsed = _json_candidates(match.group(1))
@@ -182,19 +245,22 @@ def parse_tool_calls(
             if parsed is not None:
                 calls = _coerce_calls(parsed, allowed)
                 if calls:
+                    if parallel is False:
+                        calls = calls[:1]
                     return None, calls
 
     if not calls:
         cleaned = text.strip()
         return (cleaned or None), []
 
-    # Buang hanya blok yang valid.
+    if parallel is False:
+        calls = calls[:1]
+
     for start, end in sorted(spans, reverse=True):
         text = text[:start] + text[end:]
 
     cleaned = re.sub(r"\n{3,}", "\n\n", text).strip()
     return (cleaned or None), calls
-
 
 def format_tool_calls_for_history(tool_calls: Optional[list]) -> str:
     lines = []
