@@ -188,11 +188,23 @@ def _truthy(value: Any) -> bool:
     return bool(value)
 
 
+def _model_options(request) -> dict:
+    options = _field(request, "modelOptions", None)
+    if options is None:
+        options = _field(request, "model_options", None)
+    return options if isinstance(options, dict) else {}
+
+
 def resolve_thinking(request) -> bool:
     for name in ("thinking", "ds_thinking", "enable_thinking"):
         value = _field(request, name, None)
         if value is not None:
             return _truthy(value)
+
+    options = _model_options(request)
+    for name in ("thinking", "ds_thinking", "enable_thinking"):
+        if options.get(name) is not None:
+            return _truthy(options[name])
 
     effort = _field(request, "reasoning_effort", None)
     reasoning = _field(request, "reasoning", None)
@@ -210,6 +222,19 @@ def resolve_thinking(request) -> bool:
 
     model = str(_field(request, "model", "")).lower()
     return any(marker in model for marker in ("reasoner", "thinking", "deepseek-r1", "-r1"))
+
+
+def resolve_search(request) -> bool:
+    for name in ("search", "web_search", "enable_search"):
+        value = _field(request, name, None)
+        if value is not None:
+            return _truthy(value)
+
+    options = _model_options(request)
+    for name in ("search", "web_search", "enable_search"):
+        if options.get(name) is not None:
+            return _truthy(options[name])
+    return False
 
 
 def _remove_profile_files():
@@ -386,6 +411,11 @@ class GatewayEngine:
             try:
                 result = await self._complete_locked(request, on_content, on_reasoning)
             except Exception as exc:
+                # Browser mungkin sudah menerima prompt walau respons gagal dikirim.
+                # Reset cache agar request selanjutnya membangun ulang history klien.
+                self._sent_messages = []
+                self._tools_sig = ""
+                self._thinking = None
                 self._last_error = str(exc)
                 message = str(exc).lower()
                 if any(marker in message for marker in ("login", "sign_in", "sesi")):
@@ -433,9 +463,11 @@ class GatewayEngine:
             )
 
         thinking = resolve_thinking(request)
+        search = resolve_search(request)
         result = await automation.send_message(
             prompt,
             thinking=thinking,
+            search=search,
             on_update=on_content,
             on_reasoning=on_reasoning,
             interactive_login=False,
