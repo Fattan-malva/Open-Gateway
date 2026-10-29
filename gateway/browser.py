@@ -350,10 +350,15 @@ class DeepSeekBrowserAutomation:
             return
         toggle = await self._find_thinking_toggle()
         if not toggle:
-            if DEBUG and not self._thinking_warned:
-                self._thinking_warned = True
-                logger.debug("Toggle DeepThink tidak ditemukan; atur DS_THINKING_SELECTOR bila perlu.")
-            self._thinking_applied = enabled
+            if enabled:
+                if DEBUG and not self._thinking_warned:
+                    self._thinking_warned = True
+                    logger.debug("Toggle DeepThink tidak ditemukan; atur DS_THINKING_SELECTOR bila perlu.")
+                raise RuntimeError(
+                    "Mode Deep Think tidak ditemukan pada UI DeepSeek. "
+                    "Periksa tombol Deep Think atau atur DS_THINKING_SELECTOR."
+                )
+            self._thinking_applied = False
             return
 
         state = await self._toggle_state(toggle)
