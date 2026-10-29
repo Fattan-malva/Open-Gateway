@@ -236,7 +236,7 @@ async def _stream_result(request: ChatRequest, result: Completion):
         usage_chunk["choices"] = []
         usage_chunk["usage"] = _usage(request, result)
         yield _sse(usage_chunk)
-    yield "data: [DONE]\\n\\n"
+    yield "data: [DONE]\n\n"
 
 
 async def _stream_completion(request: ChatRequest):
@@ -299,7 +299,7 @@ async def _stream_completion(request: ChatRequest):
         # Tetap kirim chunk yang dapat diparse klien chat-completions.
         yield _sse(_chunk(request, completion_id, created, {"content": f"[open-masking error] {error_message}"}))
         yield _sse(_chunk(request, completion_id, created, {}, "stop"))
-    yield "data: [DONE]\\n\\n"
+    yield "data: [DONE]\n\n"
 
 # Web UI (didaftarkan terakhir agar /v1 dan /api tetap menang).
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
