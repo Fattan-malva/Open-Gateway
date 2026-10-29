@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>open-masking — DeepSeek web gateway</title>
+  <meta name="description" content="Gateway OpenAI-compatible untuk DeepSeek web. Hubungkan OpenCode, VS Code, atau curl ke satu endpoint lokal." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="assets/theme.js"></script>
+</head>
+<body class="is-landing">
+  <header class="lp-top">
+    <div class="lp-wrap">
+      <a class="lp-brand" href="landing.html">open-masking</a>
+      <nav class="lp-nav" aria-label="Navigasi">
+        <a class="lp-link hide-sm" href="#fitur">Fitur</a>
+        <a class="lp-link hide-sm" href="#cara">Cara kerja</a>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Ganti tema"></button>
+        <a class="btn primary" href="/app">Buka app</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="lp-hero">
+      <div class="lp-wrap">
+        <p class="lp-eyebrow">DeepSeek web gateway untuk klien OpenAI-compatible</p>
+        <h1>Pakai DeepSeek dari editor dan terminal Anda.</h1>
+        <p class="lp-lead">open-masking mengirim pesan ke chat.deepseek.com lewat profil Chrome yang sudah login, lalu menyajikannya sebagai endpoint /v1 yang kompatibel dengan OpenAI. Tanpa API key DeepSeek.</p>
+        <div class="lp-cta">
+          <a class="btn primary" href="index.html">Buka playground</a>
+          <a class="btn" href="#cara">Lihat cara kerja</a>
+        </div>
+
+        <div class="lp-preview" aria-hidden="true">
+          <div class="lp-preview-bar">
+            <span class="lp-url">http://127.0.0.1:8787/v1/chat/completions</span>
+          </div>
+          <div class="lp-preview-body">
+            <div class="lp-msg-user">Tulis fungsi Python untuk membaca file JSON dengan aman.</div>
+            <div class="content lp-msg-ai">
+              <p>Fungsi berikut menangani file yang tidak ada dan JSON yang rusak:</p>
+              <pre><code>import json
+from pathlib import Path
+
+def read_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section" id="fitur">
+      <div class="lp-wrap">
+        <h2>Satu endpoint, banyak klien.</h2>
+        <p class="lp-sub">Klien Anda tidak perlu berubah. Ganti base URL dan pakai API key lokal, selesai.</p>
+        <div class="lp-features">
+          <div class="lp-feature">
+            <h3>Kompatibel OpenAI</h3>
+            <p>Endpoint chat/completions dengan streaming. OpenCode, VS Code, dan curl bisa langsung memakainya.</p>
+          </div>
+          <div class="lp-feature">
+            <h3>Reasoning terpisah</h3>
+            <p>Mode thinking diatur per permintaan. Proses berpikir tampil sebagai blok terpisah di playground.</p>
+          </div>
+          <div class="lp-feature">
+            <h3>API key terkelola</h3>
+            <p>Buat, beri nama, dan cabut key kapan saja. Nilai key disimpan sebagai hash SHA-256.</p>
+          </div>
+          <div class="lp-feature">
+            <h3>Sesi browser terkendali</h3>
+            <p>Profil Chrome khusus gateway. Login sekali, lalu chat bisa berjalan headless.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-section" id="cara">
+      <div class="lp-wrap">
+        <h2>Tiga langkah ke klien pertama.</h2>
+        <p class="lp-sub">Semua pengaturan ada di app. Tidak ada berkas yang harus diedit secara manual sebelum pengujian.</p>
+        <ol class="lp-steps">
+          <li>
+            <strong>Login</strong>
+            <span>Buka tab Browser, tekan Login, lalu selesaikan masuk ke DeepSeek di jendela Chrome.</span>
+          </li>
+          <li>
+            <strong>Buat key</strong>
+            <span>Di tab API Keys, buat satu key untuk setiap klien agar mudah dicabut jika diperlukan.</span>
+          </li>
+          <li>
+            <strong>Hubungkan</strong>
+            <span>Salin konfigurasi dari tab Connect ke opencode.json, pengaturan VS Code, atau perintah curl.</span>
+          </li>
+        </ol>
+
+        <div class="code-block">
+          <pre>curl http://127.0.0.1:8787/v1/chat/completions \
+  -H "Authorization: Bearer sk-ds-GANTI_DENGAN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Halo"}]}'</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lp-foot">
+    <div class="lp-wrap">
+      <span>open-masking berjalan lokal di mesin Anda.</span>
+      <a class="lp-link" href="index.html">Buka app</a>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+</body>
+</html>

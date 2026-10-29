@@ -1,0 +1,67 @@
+// Contoh custom provider OpenCode V2 untuk open-masking.
+// Salin ke opencode.jsonc proyek (atau config global OpenCode), lalu:
+//   1. jalankan `py main.py`
+//   2. buat API key di tab API Keys
+//   3. set environment: $env:OPEN_MASKING_KEY = "sk-ds-..."
+//   4. buka /models dan pilih open-masking/deepseek-chat
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "open-masking/deepseek-chat",
+  "providers": {
+    "open-masking": {
+      "name": "open-masking",
+      "env": ["OPEN_MASKING_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8787/v1"
+      },
+      "models": {
+        "deepseek-chat": {
+          "name": "DeepSeek Chat (Web)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"],
+            "reasoning": { "supported": true }
+          },
+          "compatibility": {
+            "reasoningField": "reasoning_content"
+          },
+          "limit": { "context": 64000, "output": 8192 },
+          "variants": [
+            { "id": "thinking", "body": { "thinking": true } }
+          ]
+        },
+        "deepseek-reasoner": {
+          "name": "DeepSeek Reasoner (DeepThink)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"],
+            "reasoning": { "supported": true, "toggle": true }
+          },
+          "compatibility": {
+            "reasoningField": "reasoning_content"
+          },
+          "limit": { "context": 64000, "output": 8192 },
+          "variants": [
+            { "id": "none", "body": { "thinking": false } }
+          ]
+        },
+        "deepseek-chat-thinking": {
+          "name": "DeepSeek Chat (Thinking)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"],
+            "reasoning": { "supported": true }
+          },
+          "compatibility": {
+            "reasoningField": "reasoning_content"
+          },
+          "limit": { "context": 64000, "output": 8192 }
+        }
+      }
+    }
+  }
+}
