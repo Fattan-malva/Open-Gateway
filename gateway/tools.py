@@ -73,6 +73,8 @@ def normalize_tool_request(
         if tool_choice is None:
             if function_call == "none":
                 tool_choice = "none"
+            elif function_call == "required":
+                tool_choice = "required"
             elif isinstance(function_call, dict) and function_call.get("name"):
                 tool_choice = {
                     "type": "function",
