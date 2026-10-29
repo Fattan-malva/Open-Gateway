@@ -153,5 +153,66 @@ class GatewayEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(engine._thinking)
 
 
+
+    async def test_legacy_function_call_then_result_keeps_same_chat(self):
+        automation = FakeAutomation(
+            [
+                ' ```tool_call\n{"name":"get_time","arguments":{}}\n```',
+                "Sekarang jam 12:00.",
+            ]
+        )
+        engine = GatewayEngine(automation=automation)
+        function = TOOLS[0]["function"]
+        user = ChatMessage(role="user", content="Jam berapa?")
+        first = await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[user],
+                functions=[function],
+                function_call="auto",
+            )
+        )
+        self.assertEqual(first.finish_reason, "tool_calls")
+        self.assertEqual(first.tool_calls[0]["function"]["name"], "get_time")
+
+        assistant = ChatMessage(
+            role="assistant",
+            content=None,
+            function_call={"name": "get_time", "arguments": "{}"},
+        )
+        function_result = ChatMessage(role="function", name="get_time", content="12:00")
+        second = await engine.complete(
+            ChatRequest(
+                model="deepseek-chat",
+                messages=[user, assistant, function_result],
+                functions=[function],
+                function_call="auto",
+            )
+        )
+        self.assertEqual(second.content, "Sekarang jam 12:00.")
+        self.assertEqual(automation.chats, 1)
+        self.assertIn("HASIL FUNCTION legacy", automation.prompts[-1])
+
+
+
+    async def test_required_tool_choice_retries_invalid_envelope(self):
+        automation = FakeAutomation(
+            [
+                "Saya akan melihatnya dulu.",
+                '```tool_call\n{"name":"get_time","arguments":{"timezone":"Asia/Jakarta"}}\n```',
+            ]
+        )
+        engine = GatewayEngine(automation=automation)
+        result = await engine.complete(
+            make_request(
+                [ChatMessage(role="user", content="Jam berapa di Jakarta?")],
+                tool_choice="required",
+            )
+        )
+        self.assertEqual(result.finish_reason, "tool_calls")
+        self.assertEqual(result.tool_calls[0]["function"]["name"], "get_time")
+        self.assertEqual(len(automation.prompts), 2)
+        self.assertIn("FORMAT CORRECTION", automation.prompts[-1])
+
 if __name__ == "__main__":
     unittest.main()

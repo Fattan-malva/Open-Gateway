@@ -145,23 +145,39 @@ curl http://127.0.0.1:8787/v1/chat/completions `
   -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Halo"}]}'
 ```
 
-## Streaming, tool, dan thinking
+## Streaming, tools, dan thinking
 
-- `stream: true` mengirim SSE OpenAI (`data: {...}`, lalu `data: [DONE]`).
-- Bila request membawa `tools`, respons di-buffer dulu agar blok `tool_call` tidak bocor sebagai teks. Klien tetap menerima SSE yang valid.
-- Reasoning dikirim sebagai `reasoning_content` pada message dan chunk SSE.
+- stream=true mengirim SSE berformat Chat Completions (data: {...} dan penutup data: [DONE]).
+- Balasan teks biasa dapat dialirkan langsung. Permintaan yang menyertakan tools di-buffer sampai jawaban selesai agar blok internal tool-call tidak bocor sebagai teks; setelah itu gateway mengirim delta tool_calls mengikuti format streaming OpenAI. Jadi streaming teks biasa real-time, sedangkan tool-call baru dikirim setelah parsing selesai.
+- Mode berpikir dikirim melalui reasoning_content ketika tersedia dari UI DeepSeek. usage merupakan estimasi berbasis karakter, bukan tokenizer resmi.
 
 ### Tool calling
 
-Definisi tool datang dari request klien. Gateway mengirimkannya ke model lewat prompt, lalu mem-parse balasan berbentuk:
+Gateway menerima definisi fungsi modern tools, tool_choice (auto, none, required atau pilihan fungsi tertentu), dan parallel_tool_calls. Format lama functions / function_call juga dipetakan untuk client yang belum memakai tools. Respons modern berisi message.tool_calls dengan ID unik dan finish_reason: "tool_calls". Client harus menjalankan fungsi lokal/eksternal, lalu mengirim hasilnya sebagai pesan role=tool beserta tool_call_id; gateway tidak mengeksekusi tools milik client.
 
-````text
-```tool_call
-{"name":"get_time","arguments":{"timezone":"Asia/Jakarta"}}
+Contoh definisi tool:
+
+```json
+{
+  "model": "deepseek-chat",
+  "messages": [{"role": "user", "content": "Cari waktu sekarang di Jakarta."}],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "get_time",
+      "description": "Ambil waktu saat ini untuk timezone tertentu.",
+      "parameters": {
+        "type": "object",
+        "properties": {"timezone": {"type": "string"}},
+        "required": ["timezone"]
+      }
+    }
+  }],
+  "tool_choice": "auto"
+}
 ```
-````
 
-Hasil tool dikirim klien pada pesan berikutnya (`role: "tool"`, `tool_call_id`). Blok yang didukung: pagar `tool_call` / `tool-call` / `tool_calls` / `tool` / `function_call`, tag `<tool_call>...</tool_call>`, atau JSON polos.
+**Batasan penting:** project ini mengendalikan chat.deepseek.com lewat browser, bukan memanggil endpoint inference resmi DeepSeek. Karena UI web tersebut tidak menyediakan kanal tool-call native yang dipakai API, gateway meminta model menulis blok tool-call lalu mem-parsenya menjadi format OpenAI. Parser memvalidasi nama tool dan sintaks JSON object, tetapi tidak menjamin kepatuhan penuh terhadap setiap JSON Schema atau strict mode; hasilnya tidak bisa dijamin identik dengan tool calling native API. Gunakan client yang mendukung endpoint POST /v1/chat/completions; endpoint Responses API belum diimplementasikan. Gateway hanya mengeluarkan satu choice (n=1).
 
 ## Konfigurasi `.env`
 

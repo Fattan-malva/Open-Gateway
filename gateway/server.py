@@ -18,7 +18,7 @@ from .auth import get_store, require_api_key
 from .config import APP_NAME, MODEL_IDS, VERSION, WEB_DIR
 from .engine import Completion, GatewayEngine
 from .errors import ApiError
-from .tools import content_to_text
+from .tools import content_to_text, normalize_tool_request
 
 CREATED = 1760000000
 
@@ -33,6 +33,7 @@ class ChatMessage(BaseModel):
     name: Optional[str] = None
     tool_calls: Optional[List[Any]] = None
     tool_call_id: Optional[str] = None
+    function_call: Optional[dict] = None
     reasoning_content: Optional[str] = None
 
 
@@ -44,6 +45,10 @@ class ChatRequest(BaseModel):
     tools: Optional[List[Any]] = None
     tool_choice: Optional[Any] = None
     parallel_tool_calls: Optional[bool] = None
+    # Deprecated OpenAI function-calling fields, retained for older clients.
+    functions: Optional[List[Any]] = None
+    function_call: Optional[Any] = None
+    n: Optional[int] = 1
     stream: bool = False
     stream_options: Optional[dict] = None
     thinking: Optional[bool] = None
@@ -119,6 +124,40 @@ async def list_models(_key=Depends(require_api_key)):
 async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_key)):
     if not request.messages:
         raise ApiError(400, "messages tidak boleh kosong")
+    if request.n not in (None, 1):
+        raise ApiError(400, "Gateway browser hanya menghasilkan satu choice; gunakan n=1.")
+    if request.tools and request.functions:
+        raise ApiError(400, "Gunakan tools (format modern) atau functions (format lama), jangan keduanya sekaligus.")
+    if request.function_call is not None and not request.functions:
+        raise ApiError(400, "function_call membutuhkan functions; gunakan tool_choice bersama tools untuk format modern.")
+
+    tools, tool_choice, _, _ = normalize_tool_request(
+        tools=request.tools,
+        tool_choice=request.tool_choice,
+        parallel=request.parallel_tool_calls,
+        functions=request.functions,
+        function_call=request.function_call,
+    )
+    tool_names = {
+        fn.get("name")
+        for item in (tools or [])
+        for fn in [(item.get("function") or item) if isinstance(item, dict) else {}]
+        if isinstance(fn, dict) and isinstance(fn.get("name"), str) and fn.get("name")
+    }
+    if tools and not tool_names:
+        raise ApiError(400, "tools harus berisi minimal satu definisi function dengan name yang valid.")
+    if tool_choice == "required" and not tool_names:
+        raise ApiError(400, "tool_choice=required membutuhkan setidaknya satu tool yang valid.")
+    if isinstance(tool_choice, str) and tool_choice not in ("auto", "none", "required"):
+        raise ApiError(400, f"tool_choice tidak didukung: {tool_choice}")
+    if isinstance(tool_choice, dict):
+        if tool_choice.get("type") != "function" or not isinstance(tool_choice.get("function"), dict):
+            raise ApiError(400, "tool_choice object harus memakai type=function dan field function.")
+        selected = tool_choice["function"].get("name")
+        if not selected:
+            raise ApiError(400, "tool_choice.function.name wajib diisi.")
+        if selected not in tool_names:
+            raise ApiError(400, f"Tool yang dipilih tidak terdaftar: {selected}")
 
     if request.stream:
         return StreamingResponse(
@@ -139,7 +178,20 @@ async def create_chat_completion(request: ChatRequest, _key=Depends(require_api_
 
 def _usage(request: ChatRequest, result: Completion) -> dict:
     prompt_chars = sum(len(content_to_text(message.content)) for message in request.messages)
-    completion_chars = len(result.content or "") + len(result.reasoning or "")
+    tools, _, _, _ = normalize_tool_request(
+        tools=request.tools,
+        functions=request.functions,
+        tool_choice=request.tool_choice,
+        parallel=request.parallel_tool_calls,
+        function_call=request.function_call,
+    )
+    prompt_chars += len(json.dumps(tools or [], ensure_ascii=False))
+    tool_chars = sum(
+        len((call.get("function") or {}).get("name", ""))
+        + len((call.get("function") or {}).get("arguments", ""))
+        for call in (result.tool_calls or [])
+    )
+    completion_chars = len(result.content or "") + len(result.reasoning or "") + tool_chars
     prompt_tokens = max(1, prompt_chars // 4)
     completion_tokens = max(1, completion_chars // 4)
     return {
@@ -150,10 +202,20 @@ def _usage(request: ChatRequest, result: Completion) -> dict:
 
 
 def _completion_response(request: ChatRequest, result: Completion) -> dict:
+    legacy_functions = not bool(request.tools) and bool(request.functions)
     message = {"role": "assistant", "content": result.content}
     if result.reasoning:
         message["reasoning_content"] = result.reasoning
-    if result.tool_calls:
+
+    finish_reason = result.finish_reason
+    if result.tool_calls and legacy_functions:
+        first = result.tool_calls[0]["function"]
+        message["function_call"] = {
+            "name": first["name"],
+            "arguments": first["arguments"],
+        }
+        finish_reason = "function_call"
+    elif result.tool_calls:
         message["tool_calls"] = result.tool_calls
 
     return {
@@ -165,12 +227,11 @@ def _completion_response(request: ChatRequest, result: Completion) -> dict:
             {
                 "index": 0,
                 "message": message,
-                "finish_reason": result.finish_reason,
+                "finish_reason": finish_reason,
             }
         ],
         "usage": _usage(request, result),
     }
-
 
 def _sse(payload: dict) -> str:
     return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
@@ -187,10 +248,15 @@ def _chunk(request: ChatRequest, completion_id: str, created: int, delta: dict, 
 
 
 def _stream_available(request: ChatRequest) -> bool:
-    """Streaming live hanya aman bila tidak ada tool yang perlu di-parse."""
-    has_tools = bool(request.tools) and request.tool_choice != "none"
-    return not has_tools
-
+    """Live text streaming is safe only when the output need not be parsed for tool calls."""
+    tools, tool_choice, _, _ = normalize_tool_request(
+        tools=request.tools,
+        tool_choice=request.tool_choice,
+        parallel=request.parallel_tool_calls,
+        functions=request.functions,
+        function_call=request.function_call,
+    )
+    return not bool(tools) or tool_choice == "none"
 
 async def _stream_completion(request: ChatRequest):
     """OpenAI-compatible SSE; buffer tool calls but always end with valid chunks."""
@@ -218,18 +284,37 @@ async def _stream_completion(request: ChatRequest):
             yield _sse(_chunk(request, completion_id, created, {"reasoning_content": result.reasoning}))
         if result.content:
             yield _sse(_chunk(request, completion_id, created, {"content": result.content}))
-        if result.tool_calls:
-            deltas = [
-                {
-                    "index": index,
-                    "id": call["id"],
-                    "type": "function",
-                    "function": call["function"],
-                }
-                for index, call in enumerate(result.tool_calls)
-            ]
-            yield _sse(_chunk(request, completion_id, created, {"tool_calls": deltas}))
-        yield _sse(_chunk(request, completion_id, created, {}, result.finish_reason))
+        legacy_functions = not bool(request.tools) and bool(request.functions)
+        finish_reason = result.finish_reason
+        if result.tool_calls and legacy_functions:
+            first = result.tool_calls[0]["function"]
+            yield _sse(_chunk(
+                request, completion_id, created,
+                {"function_call": {"name": first["name"], "arguments": first["arguments"]}},
+            ))
+            finish_reason = "function_call"
+        elif result.tool_calls:
+            # Send proper OpenAI-style tool-call deltas: index/id/type/name first,
+            # then the JSON arguments. Clients can incrementally assemble the call.
+            for index, call in enumerate(result.tool_calls):
+                function = call["function"]
+                yield _sse(_chunk(request, completion_id, created, {
+                    "tool_calls": [{
+                        "index": index,
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {"name": function["name"], "arguments": ""},
+                    }]
+                }))
+                arguments = function["arguments"]
+                if arguments:
+                    yield _sse(_chunk(request, completion_id, created, {
+                        "tool_calls": [{
+                            "index": index,
+                            "function": {"arguments": arguments},
+                        }]
+                    }))
+        yield _sse(_chunk(request, completion_id, created, {}, finish_reason))
         if include_usage:
             usage_chunk = _chunk(request, completion_id, created, {}, None)
             usage_chunk["choices"] = []

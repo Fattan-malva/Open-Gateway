@@ -10,7 +10,7 @@ except ImportError:
     pass
 
 APP_NAME = "open-masking"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 MODEL_IDS = ("deepseek-chat",)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
