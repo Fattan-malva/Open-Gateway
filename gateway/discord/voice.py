@@ -63,7 +63,10 @@ class _PcmSink(voice_recv.AudioSink if VOICE_RECV_AVAILABLE else object):  # typ
             return
         pcm = getattr(data, "pcm", None)
         if pcm:
-            self.manager.feed(user, pcm)
+            try:
+                self.manager.feed(user, pcm)
+            except Exception:
+                pass  # Non-critical; ignore write errors during feed
 
     def cleanup(self) -> None:
         return None
@@ -162,6 +165,7 @@ class VoiceManager:
         self._log("ok", f"Bergabung ke voice #{self.channel_name}.")
 
         if want_listen and VOICE_RECV_AVAILABLE:
+            self._loop = asyncio.get_running_loop()  # set sebelum listen agar paket awal tidak hilang
             try:
                 voice.listen(_PcmSink(self))
                 self._listening = True
@@ -170,6 +174,11 @@ class VoiceManager:
             except Exception as exc:
                 self._listening = False
                 self._log("warn", f"Gagal mendengarkan voice: {exc}")
+        elif want_listen and not VOICE_RECV_AVAILABLE:
+            self._log(
+                "warn",
+                "Mode dengar tidak aktif: paket discord-ext-voice-recv tidak terpasang.",
+            )
         return self.status()
 
     async def join_by_id(
@@ -229,6 +238,7 @@ class VoiceManager:
             return False
         settings = self._settings_getter()
         if not (settings.get("tts_model") or "").strip():
+            self._log("warn", "TTS tidak jalan: tts_model kosong. Pilih model TTS di web UI.")
             return False
         try:
             audio = await media.synthesize(self._provider_getter(), settings, text)
@@ -236,6 +246,7 @@ class VoiceManager:
             self._log("warn", f"TTS gagal: {exc.message[:200]}")
             return False
         if not audio or not audio.get("data"):
+            self._log("warn", "TTS tidak menghasilkan audio.")
             return False
 
         extension = media.extension_for(audio.get("mime") or "audio/mpeg", "mp3")
@@ -250,11 +261,25 @@ class VoiceManager:
                     if voice.is_connected():
                         break
                     await asyncio.sleep(0.2)
+                if not voice.is_connected():
+                    self._log("warn", "Voice terputus sebelum mainkan audio.")
+                    _remove(path)
+                    return False
                 while voice.is_playing():
                     await asyncio.sleep(0.25)
-                if not voice.is_connected():
-                    return False
-                voice.play(discord.FFmpegPCMAudio(path), after=lambda _exc: _remove(path))
+                # FFmpegOpusAudio: ffmpeg yang meng-encode Opus, jadi tidak butuh libopus.
+                self._log("info", f"Mainkan TTS: {len(text)} chars ke voice.")
+                source = discord.FFmpegOpusAudio(path)
+                def _after(_exc):
+                    if _exc:
+                        self._log("warn", f"Playback error: {_exc}")
+                    _remove(path)
+                voice.play(source, after=_after)
+                deadline = time.monotonic() + 5 + len(text) / 15
+                while voice.is_playing() and time.monotonic() < deadline:
+                    await asyncio.sleep(0.2)
+                if not voice.is_playing():
+                    self._log("info", "TTS selesai diputar.")
                 return True
             except Exception as exc:
                 self.last_error = str(exc)

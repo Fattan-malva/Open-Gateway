@@ -79,7 +79,13 @@
         <div id="gw-config-area" class="hidden">
           <div class="grid-2">
             <div class="card">
-              <div class="card-title">Status bot</div>
+              <div class="card-head-bar">
+                <div class="card-head-left">
+                  <div class="card-title">Status bot</div>
+                  <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+                </div>
+              </div>
+              <div class="card-body">
               <dl class="kv">
                 <dt>State</dt><dd><span class="badge" id="gw-state">—</span></dd>
                 <dt>Bot</dt><dd id="gw-user">—</dd>
@@ -93,19 +99,33 @@
                 <dt>Voice</dt><dd id="gw-voice-state">—</dd>
                 <dt>Error terakhir</dt><dd id="gw-last-error">—</dd>
               </dl>
+              </div>
             </div>
             <div class="card">
-              <div class="card-title">Cara pakai</div>
+              <div class="card-head-bar">
+                <div class="card-head-left">
+                  <div class="card-title">Cara pakai</div>
+                  <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+                </div>
+              </div>
+              <div class="card-body">
               <ol class="notes steps">
                 <li>Buat aplikasi + bot di <strong>Discord Developer Portal</strong>, aktifkan <strong>Message Content Intent</strong>.</li>
                 <li>Undang bot ke server dengan scope <span class="mono">bot</span>.</li>
                 <li>Tempel token, pilih model, lalu tekan <strong>Start</strong>.</li>
               </ol>
+              </div>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-title">Konfigurasi</div>
+            <div class="card-head-bar">
+              <div class="card-head-left">
+                <div class="card-title">Konfigurasi</div>
+                <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+              </div>
+            </div>
+            <div class="card-body">
             <form id="gw-form" class="form-grid" autocomplete="off">
               <label class="field span-2">
                 <span>Provider AI</span>
@@ -161,7 +181,7 @@
               </label>
 
               <div class="form-section span-2">
-                <div class="form-section-head"><i data-lucide="globe"></i><div><strong>Internet</strong><small class="muted">AI bisa mencari dan membaca halaman web.</small></div></div>
+                <div class="form-section-head form-section-toggle"><i data-lucide="globe"></i><div><strong>Internet</strong></div></div>
                 <div class="form-grid">
                   <div class="field switch-field"><span>Akses internet</span><label class="switch"><input type="checkbox" id="gw-internet" /><span class="switch-track"></span><span class="switch-text">Aktifkan pencarian &amp; baca halaman</span></label></div>
                   <label class="field"><span>Maks. hasil pencarian</span><input type="number" id="gw-web-results" min="1" max="10" step="1" /></label>
@@ -173,7 +193,7 @@
               </div>
 
               <div class="form-section span-2">
-                <div class="form-section-head"><i data-lucide="image"></i><div><strong>Gambar</strong><small class="muted">AI bisa membuat gambar dari deskripsi.</small></div></div>
+                <div class="form-section-head form-section-toggle"><i data-lucide="image"></i><div><strong>Gambar</strong></div></div>
                 <div class="form-grid">
                   <div class="field switch-field"><span>Pembuatan gambar</span><label class="switch"><input type="checkbox" id="gw-image" /><span class="switch-track"></span><span class="switch-text">Aktifkan tool gambar</span></label></div>
                   <div class="field"><span>Cadangan gratis</span><label class="switch"><input type="checkbox" id="gw-image-fallback" /><span class="switch-track"></span><span class="switch-text">Pakai pollinations.ai bila model gagal</span></label></div>
@@ -191,7 +211,7 @@
               </div>
 
               <div class="form-section span-2">
-                <div class="form-section-head"><i data-lucide="mic"></i><div><strong>Suara</strong><small class="muted">Bot bisa masuk voice channel, mendengarkan, dan menjawab dengan suara.</small></div></div>
+                <div class="form-section-head form-section-toggle"><i data-lucide="mic"></i><div><strong>Suara</strong><small class="muted">Bot bisa masuk voice channel, mendengarkan, dan menjawab dengan suara.</small></div><button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat bagian"><i data-lucide="chevron-down"></i></button></div>
                 <div class="form-grid">
                   <div class="field switch-field"><span>Fitur suara</span><label class="switch"><input type="checkbox" id="gw-voice" /><span class="switch-track"></span><span class="switch-text">Aktifkan voice channel</span></label></div>
                   <div class="field switch-field"><span>Gabung otomatis</span><label class="switch"><input type="checkbox" id="gw-voice-autojoin" /><span class="switch-track"></span><span class="switch-text">Masuk voice channel saat bot online</span></label></div>
@@ -212,14 +232,34 @@
                 <span class="muted small">Perubahan model langsung dipakai. Token baru perlu restart bot.</span>
               </div>
             </form>
+            </div>
           </div>
 
           <div class="card">
-            <div class="row between wrap gap">
-              <div class="card-title">Aktivitas</div>
-              <button class="btn ghost small" id="gw-clear-logs">Bersihkan</button>
+            <div class="card-head-bar">
+              <div class="card-head-left">
+                <div class="card-title">Cron</div>
+                <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+              </div>
+              <div class="row gap"><button class="btn ghost small" id="gw-cron-add" title="Tambah cron job"><i data-lucide="plus"></i> Tambah</button></div>
             </div>
-            <div class="log-list" id="gw-logs"><p class="muted small">Belum ada aktivitas.</p></div>
+            <div class="card-body">
+              <div id="gw-cron-list" class="cron-list"><p class="muted small">Memuat…</p></div>
+              <div class="notice warn hidden" id="gw-cron-alert"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head-bar">
+              <div class="card-head-left">
+                <div class="card-title">Aktivitas</div>
+                <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+              </div>
+              <div class="row gap"><button class="btn ghost small" id="gw-clear-logs">Bersihkan</button></div>
+            </div>
+            <div class="card-body">
+              <div class="log-list" id="gw-logs"><p class="muted small">Belum ada aktivitas.</p></div>
+            </div>
           </div>
         </div>
       </div>
@@ -255,40 +295,52 @@
         <div class="notice warn hidden" id="pv-warning"></div>
 
         <div class="card">
-          <div class="card-title">Koneksi provider</div>
-          <form id="pv-form" class="form-grid" autocomplete="off">
-            <label class="field span-2">
-              <span>Base URL</span>
-              <input type="text" id="pv-base" placeholder="http://localhost:20128" />
-            </label>
-            <label class="field span-2">
-              <span>API key</span>
-              <input type="password" id="pv-key" placeholder="sk-..." autocomplete="new-password" />
-              <small class="muted">Dipakai untuk memanggil <span class="mono">/models</span> dan <span class="mono">/chat/completions</span>.</small>
-            </label>
-            <div class="form-actions span-2">
-              <button class="btn primary" type="submit">Simpan &amp; muat model</button>
-              <span class="muted small" id="pv-meta">Belum ada sinkronisasi.</span>
+          <div class="card-head-bar">
+            <div class="card-head-left">
+              <div class="card-title">Koneksi provider</div>
+              <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
             </div>
-          </form>
+          </div>
+          <div class="card-body">
+            <form id="pv-form" class="form-grid" autocomplete="off">
+              <label class="field span-2">
+                <span>Base URL</span>
+                <input type="text" id="pv-base" placeholder="http://localhost:20128" />
+              </label>
+              <label class="field span-2">
+                <span>API key</span>
+                <input type="password" id="pv-key" placeholder="sk-..." autocomplete="new-password" />
+                <small class="muted">Dipakai untuk memanggil <span class="mono">/models</span> dan <span class="mono">/chat/completions</span>.</small>
+              </label>
+              <div class="form-actions span-2">
+                <button class="btn primary" type="submit">Simpan &amp; muat model</button>
+                <span class="muted small" id="pv-meta">Belum ada sinkronisasi.</span>
+              </div>
+            </form>
+          </div>
         </div>
 
         <div class="card">
-          <div class="row between wrap gap">
-            <div class="card-title">Model tersedia <span class="muted" id="pv-count"></span></div>
-            <input type="text" id="pv-filter" placeholder="Cari model..." />
+          <div class="card-head-bar">
+            <div class="card-head-left">
+              <div class="card-title">Model tersedia <span class="muted" id="pv-count"></span></div>
+              <button class="card-toggle" type="button" aria-expanded="true" aria-label="Lipat card"><i data-lucide="chevron-down"></i></button>
+            </div>
+            <div class="row gap"><input type="text" id="pv-filter" placeholder="Cari model..." /></div>
           </div>
-          <div class="table-wrap models-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Model</th><th>Owner</th><th>Context</th><th>Fitur</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="pv-models">
-                <tr><td colspan="5" class="muted">Memuat…</td></tr>
-              </tbody>
-            </table>
+          <div class="card-body">
+            <div class="table-wrap models-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Model</th><th>Owner</th><th>Context</th><th>Fitur</th><th></th>
+                  </tr>
+                </thead>
+                <tbody id="pv-models">
+                  <tr><td colspan="5" class="muted">Memuat…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -296,6 +348,17 @@
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal hidden" id="modal-backdrop" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title"></h2>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modal-cancel">Batal</button>
+        <button class="btn primary" id="modal-confirm">OK</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/lucide@1.66.0/dist/umd/lucide.min.js"
     integrity="sha384-Z6lHbMYcsXeWgvgnOFekAhjBtVQuTfjyNBGb7d7mrYjt5DNJspJJ9GBp9Kar/z7w"

@@ -38,6 +38,92 @@
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   }
+
+  /* ---------------- modal helpers (pengganti alert/prompt/confirm bawaan browser) ---------------- */
+  function openModal({ title = "", bodyHtml = "", fields = null, confirmText = "OK",
+                       cancelText = "Batal", danger = false, hideCancel = false, onMount = null } = {}) {
+    return new Promise((resolve) => {
+      const backdrop = $("#modal-backdrop");
+      const titleEl = $("#modal-title");
+      const body = $("#modal-body");
+      const confirmBtn = $("#modal-confirm");
+      const cancelBtn = $("#modal-cancel");
+
+      titleEl.textContent = title;
+      if (fields) {
+        body.innerHTML = fields.map((f) => {
+          const label = escapeHtml(f.label || f.name);
+          const value = f.value == null ? "" : String(f.value);
+          if (f.type === "textarea") {
+            return `<label class="field span-2"><span>${label}</span><textarea name="${escapeHtml(f.name)}" rows="${Number(f.rows) || 3}" placeholder="${escapeHtml(f.placeholder || "")}">${escapeHtml(value)}</textarea></label>`;
+          }
+          if (f.type === "select") {
+            const opts = (f.options || []).map((o) => {
+              const ov = typeof o === "object" ? o.value : o;
+              const ol = typeof o === "object" ? (o.label ?? o.value) : o;
+              return `<option value="${escapeHtml(ov)}"${String(ov) === value ? " selected" : ""}>${escapeHtml(ol)}</option>`;
+            }).join("");
+            return `<label class="field span-2"><span>${label}</span><select name="${escapeHtml(f.name)}">${opts}</select></label>`;
+          }
+          return `<label class="field span-2"><span>${label}</span><input type="${escapeHtml(f.type || "text")}" name="${escapeHtml(f.name)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(f.placeholder || "")}" autocomplete="off" /></label>`;
+        }).join("");
+      } else {
+        body.innerHTML = bodyHtml;
+      }
+      if (typeof onMount === "function") onMount(body);
+      confirmBtn.textContent = confirmText;
+      cancelBtn.textContent = cancelText;
+      confirmBtn.classList.toggle("danger", Boolean(danger));
+      cancelBtn.classList.toggle("hidden", Boolean(hideCancel));
+      backdrop.classList.remove("hidden");
+      createIcons();
+
+      const done = (result) => {
+        backdrop.classList.add("hidden");
+        confirmBtn.removeEventListener("click", onConfirm);
+        cancelBtn.removeEventListener("click", onCancel);
+        backdrop.removeEventListener("click", onBackdrop);
+        document.removeEventListener("keydown", onKey);
+        resolve(result);
+      };
+      const onConfirm = () => {
+        const out = {};
+        body.querySelectorAll("[name]").forEach((el) => {
+          if (el.type === "checkbox") out[el.name] = el.checked ? el.value : "";
+          else out[el.name] = el.value;
+        });
+        done(out);
+      };
+      const onCancel = () => done(null);
+      const onBackdrop = (event) => { if (event.target === backdrop) onCancel(); };
+      const onKey = (event) => {
+        if (event.key === "Escape") onCancel();
+        else if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
+          event.preventDefault();
+          onConfirm();
+        }
+      };
+      confirmBtn.addEventListener("click", onConfirm);
+      cancelBtn.addEventListener("click", onCancel);
+      backdrop.addEventListener("click", onBackdrop);
+      document.addEventListener("keydown", onKey);
+      setTimeout(() => {
+        const first = body.querySelector("input, textarea, select");
+        (first || confirmBtn).focus();
+        if (first && first.select) first.select();
+      }, 40);
+    });
+  }
+
+  function confirmModal(title, message, { danger = false, confirmText = "Lanjutkan", cancelText = "Batal" } = {}) {
+    return openModal({
+      title,
+      bodyHtml: `<p class="muted">${escapeHtml(message)}</p>`,
+      confirmText,
+      cancelText,
+      danger,
+    }).then((ok) => Boolean(ok));
+  }
   function formatNumber(value) { const number = Number(value) || 0; return numberFmt.format(number); }
   function formatTokens(value) {
     const number = Number(value) || 0;
@@ -571,6 +657,8 @@
       const data = await api(`/api/gateways/${id}`);
       fillGateway(data);
     } catch (error) { toast(error.message, true); }
+    initCollapsibles($("#gateway-detail-view"), "gateway");
+    loadCronJobs();
     createIcons();
   }
 
@@ -831,7 +919,7 @@
 
   async function deleteGateway() {
     if (!state.selectedGateway) return;
-    if (!confirm("Hapus gateway ini?")) return;
+    if (!(await confirmModal("Hapus gateway ini?", "Gateway dan semua konfigurasinya akan dihapus. Lanjutkan?", { danger: true }))) return;
     setBusy(true);
     try {
       await api(`/api/gateways/${state.selectedGateway}`, { method: "DELETE" });
@@ -839,6 +927,302 @@
       showGatewayList();
     } catch (error) { toast(error.message, true); }
     finally { setBusy(false); }
+  }
+
+  /* ---------------- collapsible cards & cron ---------------- */
+  const COLLAPSE_STORAGE = "open-gateway-card-state";
+
+  function cardKey(view, card) {
+    const title = (card.querySelector(".card-title") || card).textContent.trim();
+    return `collapsed:${view}:${title || "card"}`;
+  }
+
+  function loadCollapseMap(view) {
+    try {
+      const raw = localStorage.getItem(COLLAPSE_STORAGE);
+      return (raw ? JSON.parse(raw) : {})[view] || {};
+    } catch (_) { return {}; }
+  }
+
+  function saveCollapseMap(view, map) {
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem(COLLAPSE_STORAGE) || "{}"); } catch (_) {}
+    all[view] = map;
+    localStorage.setItem(COLLAPSE_STORAGE, JSON.stringify(all));
+  }
+
+  function buildToggle() {
+    const btn = document.createElement("button");
+    btn.className = "card-toggle";
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Lipat card");
+    btn.setAttribute("aria-expanded", "true");
+    btn.innerHTML = '<i data-lucide="chevron-down"></i>';
+    return btn;
+  }
+
+  function makeCollapsible(card, view) {
+    if (card._collapsible) return;
+    card._collapsible = true;
+    // reuse existing head bar if present, else synthesize from first .card-title/.row or first child
+    let bar = card.querySelector(".card-head-bar");
+    if (!bar) {
+      const src = card.querySelector(".card-title") || card.querySelector(".row");
+      bar = document.createElement("div");
+      bar.className = "card-head-bar";
+      if (src && src.parentElement === card) {
+        src.before(bar);
+        bar.appendChild(src);
+      } else {
+        const span = document.createElement("span");
+        span.textContent = src ? src.textContent.trim() : "Detail";
+        bar.appendChild(span);
+        card.insertBefore(bar, card.firstElementChild);
+      }
+    }
+    let toggle = bar.querySelector(".card-toggle");
+    if (!toggle) {
+      toggle = buildToggle();
+      bar.appendChild(toggle);
+    }
+    const wire = (event) => {
+      event.stopPropagation();
+      const collapsed = !card.classList.contains("collapsed");
+      card.classList.toggle("collapsed", collapsed);
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+      const map = loadCollapseMap(view);
+      map[cardKey(view, card)] = collapsed;
+      saveCollapseMap(view, map);
+      createIcons();
+    };
+    toggle.replaceWith(toggle); // no-op safety
+    toggle.onclick = null;
+    toggle.addEventListener("click", wire);
+    // ensure a body wraps non-head content
+    let body = card.querySelector(".card-body");
+    if (!body) {
+      body = document.createElement("div");
+      body.className = "card-body";
+      const kids = [...card.children].filter((child) => !child.classList.contains("card-head-bar"));
+      kids.forEach((child) => body.appendChild(child));
+      card.appendChild(body);
+    }
+    // restore persisted state
+    const map = loadCollapseMap(view);
+    if (map[cardKey(view, card)]) {
+      card.classList.add("collapsed");
+      toggle.setAttribute("aria-expanded", "false");
+    } else {
+      card.classList.remove("collapsed");
+      toggle.setAttribute("aria-expanded", "true");
+    }
+  }
+
+  function initCollapsibles(scope, view) {
+    if (!scope) return;
+    scope.querySelectorAll(".card").forEach((card) => makeCollapsible(card, view));
+    // form-section toggles (head already has .card-toggle in markup)
+    scope.querySelectorAll(".form-section").forEach((section) => {
+      if (section._collapsible) return;
+      section._collapsible = true;
+      const toggle = section.querySelector(".form-section-head .card-toggle");
+      if (!toggle) return;
+      if (!toggle._wired) {
+        toggle._wired = true;
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          section.classList.toggle("collapsed");
+          createIcons();
+        });
+      }
+      // initialize collapsed state to expanded
+      section.classList.remove("collapsed");
+    });
+    createIcons();
+  }
+
+  /* ---------------- cron jobs (UI management) ---------------- */
+  function renderCronJobs(jobs) {
+    state.cronJobs = jobs || [];
+    const box = $("#gw-cron-list");
+    if (!box) return;
+    if (!state.cronJobs.length) {
+      box.innerHTML = '<p class="muted small">Belum ada cron job. Tekan "Tambah" untuk menjadwalkan pesan otomatis.</p>';
+      return;
+    }
+    const rows = state.cronJobs.map((j) => {
+      const enabled = j.enabled !== false;
+      const next = j.next_run ? formatDate(j.next_run) : "—";
+      return `<tr data-job-id="${escapeHtml(j.id)}">
+        <td class="mono break" title="ID">${escapeHtml(j.id)}</td>
+        <td><span class="badge ${enabled ? "ok" : ""}">${enabled ? "aktif" : "mati"}</span></td>
+        <td class="mono break">${escapeHtml(j.schedule)}</td>
+        <td class="muted nowrap">${j.created_at ? formatDate(j.created_at) : "—"}</td>
+        <td class="muted nowrap">${next}</td>
+        <td class="muted small">${j.last_status ? escapeHtml(String(j.last_status).slice(0, 100)) : "—"}</td>
+        <td class="nowrap">
+          <button class="btn ghost small icon-only" title="${enabled ? "Nonaktifkan" : "Aktifkan"}"><i data-lucide="${enabled ? "pause-circle" : "play"}"></i></button>
+          <button class="btn ghost small icon-only" title="Edit"><i data-lucide="edit"></i></button>
+          <button class="btn ghost small icon-only" title="Jalankan sekarang"><i data-lucide="play"></i></button>
+          <button class="btn ghost small icon-only danger" title="Hapus"><i data-lucide="trash-2"></i></button>
+        </td>
+      </tr>`;
+    }).join("");
+    box.innerHTML = `<table class="cron-table">
+      <thead><tr><th>ID</th><th>Status</th><th>Jadwal</th><th>Dibuat</th><th>Berikutnya</th><th>Status log</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    box.querySelectorAll("tr[data-job-id]").forEach((row) => {
+      const id = row.dataset.jobId;
+      const cells = row.querySelectorAll("button");
+      cells[0]?.addEventListener("click", () => toggleCron(id));
+      cells[1]?.addEventListener("click", () => editCron(id));
+      cells[2]?.addEventListener("click", () => runCron(id));
+      cells[3]?.addEventListener("click", () => deleteCron(id));
+    });
+    createIcons();
+  }
+
+  async function loadCronJobs() {
+    if (!state.selectedGateway) return;
+    try {
+      const data = await api(`/api/gateways/${state.selectedGateway}/cron`);
+      renderCronJobs(data.cron_jobs || []);
+    } catch (error) {
+      showNotice("#gw-cron-alert", error.message);
+    }
+  }
+
+  async function addCron() {
+    const result = await openCronModal();
+    if (!result) return;
+    showNotice("#gw-cron-alert", "");
+    try {
+      await api(`/api/gateways/${state.selectedGateway}/cron`, { method: "POST", body: result });
+      loadCronJobs();
+      toast("Cron job ditambahkan.");
+    } catch (error) {
+      showNotice("#gw-cron-alert", error.message);
+      toast(error.message, true);
+    }
+  }
+
+  async function editCron(id) {
+    const job = (state.cronJobs || []).find((j) => j.id === id);
+    if (!job) return;
+    const result = await openCronModal(job);
+    if (!result) return;
+    showNotice("#gw-cron-alert", "");
+    try {
+      await api(`/api/gateways/${state.selectedGateway}/cron/${encodeURIComponent(id)}`, {
+        method: "PUT", body: { schedule: result.schedule, prompt: result.prompt, channel_id: result.channel_id },
+      });
+      loadCronJobs();
+    } catch (error) { showNotice("#gw-cron-alert", error.message); }
+  }
+
+  // day-of-week: 0=Minggu … 6=Sabtu (sesuai cron)
+  const DAY_NAMES = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+
+  function cronDowSelected(dowField, idx) {
+    if (dowField == null || dowField === "*" || dowField === "*/1" || dowField === "?") return true;
+    return String(dowField).split(",").map((s) => s.trim()).filter(Boolean).includes(String(idx));
+  }
+
+  function parseCron(expr) {
+    const parts = (expr || "").trim().split(/\s+/);
+    if (parts.length < 5) return { minute: 0, hour: 9, dow: null };
+    return { minute: Number(parts[0]) || 0, hour: Number(parts[1]) || 0, dow: parts[4] };
+  }
+
+  async function openCronModal(job = null) {
+    const isEdit = Boolean(job);
+    const def = isEdit ? parseCron(job.schedule) : { minute: 0, hour: 9, dow: null };
+    const defEvery = def.dow == null || ["*", "*/1", "?"].includes(def.dow);
+
+    const bodyHtml = `
+      <div class="cron-form">
+        <label class="field span-2"><span>Waktu</span><input type="time" name="time" value="${String(def.hour).padStart(2, "0")}:${String(def.minute).padStart(2, "0")}" /></label>
+        <label class="field span-2"><span>Hari</span>
+          <div class="cron-days">
+            <label class="row gap"><input type="checkbox" name="every" value="1" ${defEvery ? "checked" : ""} /><span>Setiap hari</span></label>
+            ${DAY_NAMES.map((d, i) => `<label class="row gap"><input type="checkbox" name="dow" value="${i}" ${cronDowSelected(def.dow, i) ? "checked" : ""} />${d}</label>`).join("")}
+          </div>
+        </label>
+        <label class="field span-2"><span>Prompt / perintah</span><textarea name="prompt" rows="3" placeholder="Apa yang akan dikirim bot?">${escapeHtml((job && job.prompt) || "")}</textarea></label>
+        <label class="field span-2"><span>Channel ID</span><input type="text" name="channel_id" value="${escapeHtml((job && job.channel_id) || "")}" placeholder="mis. 123456789012345678" /></label>
+      </div>`;
+
+    const form = await openModal({
+      title: isEdit ? "Edit cron job" : "Tambah cron job",
+      bodyHtml,
+      confirmText: "Simpan",
+      onMount: (body) => {
+        const everyBox = body.querySelector('input[name="every"]');
+        const dowBoxes = () => body.querySelectorAll('input[name="dow"]');
+        if (everyBox) {
+          const sync = () => {
+            const on = everyBox.checked;
+            dowBoxes().forEach((b) => {
+              b.disabled = on;
+              b.closest("label").classList.toggle("muted", on);
+            });
+          };
+          everyBox.addEventListener("change", sync);
+          sync();
+        }
+      },
+    });
+    if (!form) return null;
+
+    const timeParts = String(form.time || "").split(":");
+    const hour = Number(timeParts[0] || 0);
+    const minute = Number(timeParts[1] || 0);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+
+    const every = form.every && form.every !== "";
+    const bodyEl = $("#modal-body");
+    const checked = [...(bodyEl ? bodyEl.querySelectorAll('input[name="dow"]:checked') : [])].map((el) => el.value);
+    let schedule;
+    if (every || checked.length === 0 || checked.length === 7) {
+      schedule = `${minute} ${hour} * * *`;
+    } else {
+      schedule = `${minute} ${hour} * * ${checked.join(",")}`;
+    }
+
+    return {
+      schedule,
+      prompt: (form.prompt || "").trim(),
+      channel_id: (form.channel_id || "").replace(/[<#> >]/g, "").trim(),
+    };
+  }
+
+  async function toggleCron(id) {
+    const job = (state.cronJobs || []).find((j) => j.id === id);
+    if (!job) return;
+    try {
+      await api(`/api/gateways/${state.selectedGateway}/cron/${encodeURIComponent(id)}`, {
+        method: "PUT", body: { enabled: !job.enabled },
+      });
+      loadCronJobs();
+    } catch (error) { showNotice("#gw-cron-alert", error.message); }
+  }
+
+  async function deleteCron(id) {
+    if (!(await confirmModal("Hapus cron job ini?", `Job ${id} akan dihapus secara permanen. Lanjutkan?`, { danger: true }))) return;
+    try {
+      await api(`/api/gateways/${state.selectedGateway}/cron/${encodeURIComponent(id)}`, { method: "DELETE" });
+      loadCronJobs();
+      toast("Cron job dihapus.");
+    } catch (error) { showNotice("#gw-cron-alert", error.message); }
+  }
+
+  async function runCron(id) {
+    try {
+      const data = await api(`/api/gateways/${state.selectedGateway}/cron/${encodeURIComponent(id)}/run`, { method: "POST" });
+      toast(data.ok ? "Cron dijalankan." : "Cron gagal.", !data.ok);
+      showNotice("#gw-cron-alert", (data && data.detail) || "");
+      loadCronJobs();
+    } catch (error) { showNotice("#gw-cron-alert", error.message); }
   }
 
   /* ---------------- logs ---------------- */
@@ -1029,6 +1413,7 @@
       const data = await api(`/api/providers/${id}`);
       fillProviderForm(data);
     } catch (error) { toast(error.message, true); }
+    initCollapsibles($("#provider-detail-view"), "provider");
     createIcons();
   }
 
@@ -1109,7 +1494,7 @@
 
   async function deleteProvider() {
     if (!state.selectedProvider) return;
-    if (!confirm("Hapus provider ini?")) return;
+    if (!(await confirmModal("Hapus provider ini?", "Semua model terhubung akan diputus. Lanjutkan?", { danger: true }))) return;
     setBusy(true);
     try {
       await api(`/api/providers/${state.selectedProvider}`, { method: "DELETE" });
@@ -1134,6 +1519,7 @@
     $("#gw-restart")?.addEventListener("click", () => botAction("restart"));
     $("#gw-clear-logs")?.addEventListener("click", clearLogs);
     $("#gw-delete")?.addEventListener("click", deleteGateway);
+    $("#gw-cron-add")?.addEventListener("click", addCron);
     $("#gw-provider")?.addEventListener("change", async (e) => {
       const pid = e.target.value;
       await loadProviderForGateway(pid);

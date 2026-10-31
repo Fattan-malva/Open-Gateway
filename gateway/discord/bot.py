@@ -4,14 +4,16 @@ import io
 import re
 import time
 from collections import deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import discord
+from discord import app_commands
 
 from .. import agent, media, webtools
 import provider as providers
 from ..store import get_store
 from .voice import VoiceManager
+from . import cron as cronmod
 
 MAX_CHUNKS = 4
 CHUNK_LIMIT = 1900
@@ -29,6 +31,7 @@ COMMANDS = {
     "cari",
     "buka",
     "voice",
+    "cron",
 }
 
 
@@ -87,20 +90,62 @@ def split_message(text: str, limit: int = CHUNK_LIMIT) -> List[str]:
 def _help_text(prefix: str) -> str:
     return (
         "**Open Gateway — bantuan**\n"
-        "• Mention bot atau kirim DM untuk mengobrol dengan model AI.\n"
+        "• Ketik `/` untuk melihat daftar perintah slash.\n"
+        "• Mention bot atau kirim DM untuk mengobrol langsung dengan model AI.\n"
         "• AI bisa mencari di internet, membuka tautan, dan membuat gambar sendiri.\n"
-        f"• `{prefix} gambar <deskripsi>` — buat gambar langsung.\n"
-        f"• `{prefix} cari <kata kunci>` — cari di internet.\n"
-        f"• `{prefix} buka <url>` — baca isi sebuah halaman.\n"
-        f"• `{prefix} join [id channel]` — ajak bot masuk voice channel.\n"
-        f"• `{prefix} leave` — keluar dari voice channel.\n"
-        f"• `{prefix} dengar on|off` — atur bot mendengarkan suara.\n"
-        f"• `{prefix} voice` — status suara bot.\n"
-        f"• `{prefix} reset` — hapus riwayat percakapan di channel ini.\n"
-        f"• `{prefix} model` — tampilkan model yang sedang aktif.\n"
-        f"• `{prefix} ping` — cek latensi bot.\n"
-        f"• `{prefix} help` — tampilkan pesan ini."
+        "• `/gambar <deskripsi>` — buat gambar langsung.\n"
+        "• `/cari <kata kunci>` — cari di internet.\n"
+        "• `/buka <url>` — baca isi sebuah halaman.\n"
+        "• `/join [channel]` — ajak bot masuk voice channel.\n"
+        "• `/leave` — keluar dari voice channel.\n"
+        "• `/dengar on|off` — atur bot mendengarkan suara.\n"
+        "• `/voice` — status suara bot.\n"
+        "• `/reset` — hapus riwayat percakapan di channel ini.\n"
+        "• `/model` — tampilkan model yang sedang aktif.\n"
+        "• `/ping` — cek latensi bot.\n"
+        "• `/help` — tampilkan pesan ini.\n"
+        "• `/cron list` — daftar cron job (kelola di UI detail gateway).\n"
+        "• `/cron detail <id>` — lihat detail cron job.\n"
     )
+
+
+class _CronAuthor:
+    """Author palsu supaya cron job melewati path percakapan yang sama."""
+
+    display_name = "Cron"
+    id = 0
+
+    def __str__(self) -> str:
+        return self.display_name
+
+
+class _CronMessage:
+    """Fake message: kirim balasan cron langsung ke channel target."""
+
+    def __init__(self, channel: Any):
+        self.channel = channel
+        self.guild = getattr(channel, "guild", None)
+        self.author = _CronAuthor()
+        self.content = ""
+        self.id = 0
+
+    async def reply(self, text: str, files: Any = discord.utils.MISSING, **_kwargs: Any) -> None:
+        await self.channel.send(text, files=files if files is not discord.utils.MISSING else discord.utils.MISSING)
+
+
+class _InteractionMessage:
+    """Adapter agar perintah slash memakai handler pesan yang sama."""
+
+    def __init__(self, interaction: discord.Interaction):
+        self.interaction = interaction
+        self.author = interaction.user
+        self.guild = interaction.guild
+        self.channel = interaction.channel
+        self.content = ""
+        self.id = 0
+
+    async def reply(self, text: str, files: Any = discord.utils.MISSING, **_kwargs: Any) -> None:
+        await self.interaction.followup.send(text, files=files)
 
 
 class DiscordBotManager:
@@ -116,6 +161,8 @@ class DiscordBotManager:
         self._history: Dict[str, List[Dict[str, str]]] = {}
         self._logs: deque = deque(maxlen=150)
         self._lock = asyncio.Lock()
+        self._cron_task: Optional[asyncio.Task] = None
+        self._cron_last_minute: str = ""
         self.voice = VoiceManager()
         self.voice.configure(self.log, self._settings, self._provider)
         self.voice.on_transcript = self._handle_voice_transcript
@@ -225,6 +272,7 @@ class DiscordBotManager:
                 await self.voice.leave()
             except Exception:
                 pass
+            self._stop_cron()
             if self._state != "error":
                 self._state = "stopped"
             try:
@@ -247,6 +295,7 @@ class DiscordBotManager:
                 await self.voice.leave()
             except Exception:
                 pass
+            self._stop_cron()
             if client is not None and not client.is_closed():
                 try:
                     await client.close()
@@ -302,6 +351,9 @@ class DiscordBotManager:
         intents = discord.Intents.default()
         intents.message_content = True
         client = discord.Client(intents=intents)
+        tree = app_commands.CommandTree(client)
+        client.tree = tree  # type: ignore[attr-defined]
+        self._register_slash(tree)
         self.voice.attach(client)
 
         @client.event
@@ -315,9 +367,14 @@ class DiscordBotManager:
                 f"Bot online sebagai {client.user} di {len(client.guilds)} server.",
             )
             try:
+                await manager._sync_slash(client)
+            except Exception as exc:
+                manager.log("warn", f"Gagal sinkronkan slash command: {exc}")
+            try:
                 await manager.sync_voice()
             except Exception as exc:
                 manager.log("warn", f"Gagal menyiapkan voice: {exc}")
+            manager._start_cron()
 
         @client.event
         async def on_disconnect() -> None:
@@ -336,6 +393,114 @@ class DiscordBotManager:
                 self.log("error", f"Gagal memproses pesan: {exc}")
 
         return client
+
+    # ---------- slash command (muncul saat ketik '/') ----------
+
+    def _register_slash(self, tree: app_commands.CommandTree) -> None:
+        """Daftarkan slash command agar daftar perintah muncul saat mengetik '/'."""
+
+        @tree.command(name="help", description="Tampilkan bantuan bot")
+        async def help_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "help")
+
+        @tree.command(name="bantuan", description="Tampilkan bantuan bot")
+        async def bantuan_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "bantuan")
+
+        @tree.command(name="reset", description="Hapus riwayat percakapan di channel ini")
+        async def reset_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "reset")
+
+        @tree.command(name="ping", description="Cek latensi bot")
+        async def ping_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "ping")
+
+        @tree.command(name="model", description="Tampilkan model AI yang aktif")
+        async def model_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "model")
+
+        @tree.command(name="join", description="Ajak bot masuk voice channel")
+        @app_commands.describe(channel="Voice channel tujuan (kosongkan untuk channel Anda)")
+        async def join_cmd(
+            interaction: discord.Interaction,
+            channel: Optional[discord.VoiceChannel] = None,
+        ) -> None:
+            await self._slash(interaction, f"join {channel.id if channel else ''}".strip())
+
+        @tree.command(name="leave", description="Keluarkan bot dari voice channel")
+        async def leave_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "leave")
+
+        @app_commands.describe(mode="on atau off (kosongkan untuk toggle)")
+        @tree.command(name="dengar", description="Atur bot mendengarkan suara")
+        async def listen_cmd(interaction: discord.Interaction, mode: str = "") -> None:
+            await self._slash(interaction, f"dengar {mode}".strip())
+
+        @tree.command(name="voice", description="Status suara bot")
+        async def voice_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "voice")
+
+        @tree.command(name="gambar", description="Buat gambar dari deskripsi")
+        async def image_cmd(interaction: discord.Interaction, teks: str) -> None:
+            await self._slash(interaction, f"gambar {teks}")
+
+        @tree.command(name="cari", description="Cari informasi di internet")
+        async def search_cmd(interaction: discord.Interaction, teks: str) -> None:
+            await self._slash(interaction, f"cari {teks}")
+
+        @tree.command(name="buka", description="Baca isi sebuah halaman web")
+        async def fetch_cmd(interaction: discord.Interaction, teks: str) -> None:
+            await self._slash(interaction, f"buka {teks}")
+
+        cron_group = app_commands.Group(name="cron", description="Daftar & lihat cron job")
+        cron_group.name = "cron"
+
+        @cron_group.command(name="list", description="Daftar cron job")
+        async def cron_list_cmd(interaction: discord.Interaction) -> None:
+            await self._slash(interaction, "cron list")
+
+        @cron_group.command(name="detail", description="Detail cron job")
+        @app_commands.describe(job_id="ID cron job (lihat /cron list)")
+        async def cron_detail_cmd(interaction: discord.Interaction, job_id: str) -> None:
+            await self._slash(interaction, f"cron detail {job_id}")
+
+        tree.add_command(cron_group)
+
+    async def _sync_slash(self, client: discord.Client) -> None:
+        """Sinkronkan slash command per server agar langsung muncul saat mengetik '/'."""
+        tree = getattr(client, "tree", None)
+        if tree is None:
+            return
+        synced = 0
+        for guild in client.guilds:
+            try:
+                await tree.sync(guild=guild)
+                synced += 1
+            except Exception as exc:
+                self.log("warn", f"Gagal sync slash di guild {guild.id}: {exc}")
+        if not synced:
+            try:
+                await tree.sync()
+            except Exception as exc:
+                self.log("warn", f"Gagal sync slash global: {exc}")
+
+    async def _slash(self, interaction: discord.Interaction, text: str) -> None:
+        """Jalankan perintah dari slash command memakai alur pesan yang sama."""
+        try:
+            await interaction.response.defer(thinking=True)
+        except discord.HTTPException:
+            pass
+        client = self._client
+        if client is None:
+            return
+        try:
+            await self._dispatch(client, _InteractionMessage(interaction), text)
+        except Exception as exc:
+            self.log("error", f"Slash command gagal: {exc}")
+            try:
+                await interaction.followup.send(f"⚠️ {str(exc)[:800]}")
+            except discord.HTTPException:
+                pass
 
     # ---------- message handling ----------
 
@@ -374,8 +539,11 @@ class DiscordBotManager:
         settings = self._settings()
         if not self._should_reply(client, message, settings):
             return
-
         text = self._clean_text(client, message, settings)
+        await self._dispatch(client, message, text, settings)
+
+    async def _dispatch(self, client, message, text, settings=None) -> None:
+        settings = settings or self._settings()
         prefix = (settings.get("prefix") or "!ai").strip()
         command = command_name(text)
         args = command_args(text)
@@ -414,6 +582,9 @@ class DiscordBotManager:
             return
         if command == "dengar":
             await self._command_listen(message, args)
+            return
+        if command == "cron":
+            await self._command_cron(message, args)
             return
         if command == "voice":
             status = self.voice.status()
@@ -493,6 +664,20 @@ class DiscordBotManager:
             await self._reply(message, f"Gagal bergabung ke voice: {str(exc)[:400]}")
             return
         await self._reply(message, f"Bergabung ke voice #{self.voice.channel_name}. Sekarang saya bisa ikut ngobrol.")
+        if self.voice.status()["connected"]:
+            self.voice.set_listening(True)
+        gateway_id = settings.get("id") or self.gateway_id
+        if gateway_id and self.voice.channel_id:
+            try:
+                get_store().update_gateway(
+                    gateway_id,
+                    {
+                        "voice_enabled": True,
+                        "voice_channel_id": str(self.voice.channel_id),
+                    },
+                )
+            except Exception as exc:
+                self.log("warn", f"Gagal menyimpan pengaturan voice: {exc}")
 
     async def _command_listen(self, message: discord.Message, args: str) -> None:
         value = args.strip().lower()
@@ -552,6 +737,153 @@ class DiscordBotManager:
             return
         await self._reply(message, f"**{page['title']}**\n{page['url']}\n\n{page['text']}")
 
+    # ---------- cron job ----------
+
+    def _cron_jobs(self) -> List[Dict[str, Any]]:
+        return cronmod.sanitize_jobs(self._settings().get("cron_jobs"))
+
+    def _save_cron_jobs(self, jobs: List[Dict[str, Any]]) -> None:
+        gateway_id = self._settings().get("id") or self.gateway_id
+        if not gateway_id:
+            raise RuntimeError("Gateway belum tersimpan, cron tidak bisa disimpan.")
+        get_store().update_gateway(gateway_id, {"cron_jobs": jobs})
+
+    async def _command_cron(self, message: Any, args: str) -> None:
+        tokens = (args or "").split()
+        action = tokens[0].lower() if tokens else "list"
+        rest = " ".join(tokens[1:]).strip()
+
+        if action in ("list", "daftar", ""):
+            jobs = self._cron_jobs()
+            if not jobs:
+                await self._reply(message, "Belum ada cron job. Atur di UI detail gateway → Cron.")
+                return
+            lines = ["**Cron job**"]
+            for job in jobs:
+                flag = "aktif" if job.get("enabled", True) else "nonaktif"
+                next_text = ""
+                try:
+                    upcoming = cronmod.next_run(str(job.get("schedule") or ""), cronmod.now())
+                    next_text = f"\n  Berikutnya: {upcoming.strftime('%Y-%m-%d %H:%M')}"
+                except cronmod.CronError:
+                    pass
+                lines.append(
+                    f"• `{job.get('id')}` `{job.get('schedule')}` [{flag}] "
+                    f"→ {job.get('channel_id')}{next_text}\n"
+                    f"  {str(job.get('prompt') or '')[:120]}"
+                )
+            await self._reply(message, "\n".join(lines))
+            return
+
+        if action in ("detail", "lihat", "show"):
+            job_id = rest.split()[0] if rest else ""
+            job = next((item for item in self._cron_jobs() if str(item.get("id")) == job_id), None)
+            if job is None:
+                await self._reply(message, f"Cron `{job_id}` tidak ditemukan. Lihat `/cron list`.")
+                return
+            next_text = "-"
+            try:
+                next_text = cronmod.next_run(str(job.get("schedule") or ""), cronmod.now()).strftime("%Y-%m-%d %H:%M")
+            except cronmod.CronError:
+                pass
+            lines = [
+                f"**Detail cron `{job.get('id')}`**",
+                f"Jadwal: `{job.get('schedule')}`",
+                f"Aktif: {'ya' if job.get('enabled', True) else 'tidak'}",
+                f"Channel: {job.get('channel_id')}",
+                f"Dibuat: {job.get('created_at') or '-'}",
+                f"Last run: {job.get('last_run') or '-'}",
+                f"Berikutnya: {next_text}",
+                f"Status: {str(job.get('last_status') or '-')[:300]}",
+                f"Prompt:\n{job.get('prompt') or ''}",
+            ]
+            await self._reply(message, "\n".join(lines))
+            return
+
+        await self._reply(message, "Cron dikelola di UI detail gateway → Cron.\nPerintah Discord:\n• `/cron list` — daftar job\n• `/cron detail <id>` — detail")
+
+    async def _run_cron_job(self, job: Dict[str, Any]) -> tuple:
+        """Jalankan satu cron job: kirim prompt ke model lalu posting hasilnya."""
+        client = self._client
+        if client is None or not client.is_ready():
+            return False, "Bot belum siap, cron dilewati."
+        channel_id = str(job.get("channel_id") or "")
+        if not channel_id.isdigit():
+            return False, "Channel target cron tidak valid."
+        channel = client.get_channel(int(channel_id))
+        if channel is None:
+            try:
+                channel = await client.fetch_channel(int(channel_id))
+            except Exception as exc:
+                return False, f"Channel {channel_id} tidak ditemukan: {exc}"
+        settings = self._settings()
+        if not (settings.get("model") or "").strip():
+            return False, "Model AI belum dipilih."
+        prompt = str(job.get("prompt") or "").strip()
+        if not prompt:
+            return False, "Prompt cron kosong."
+
+        key = f"cron:{job.get('id')}"
+        try:
+            result = await self._ask(settings, key, prompt, "Cron")
+        except providers.ProviderError as exc:
+            return False, f"Model gagal: {exc.message[:400]}"
+        except Exception as exc:
+            return False, f"Cron gagal: {exc}"
+        try:
+            await self._send_channel(channel, result["text"], result.get("images"))
+        except Exception as exc:
+            return False, f"Gagal kirim ke channel: {exc}"
+        self._handled += 1
+        return True, f"Cron dijalankan, balasan dikirim ke <#{channel_id}>."
+
+    def _start_cron(self) -> None:
+        if self._cron_task is not None and not self._cron_task.done():
+            return
+        self._cron_task = asyncio.create_task(self._cron_loop(), name="open-gateway-cron")
+
+    def _stop_cron(self) -> None:
+        task = self._cron_task
+        self._cron_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _cron_loop(self) -> None:
+        """Cek tiap 20 detik; satu job hanya jalan sekali per menit."""
+        try:
+            while True:
+                await asyncio.sleep(20)
+                moment = cronmod.now()
+                stamp = cronmod.minute_key(moment)
+                if stamp == self._cron_last_minute:
+                    continue
+                self._cron_last_minute = stamp
+                for job in self._cron_jobs():
+                    if not job.get("enabled", True):
+                        continue
+                    if str(job.get("last_run_key") or "") == stamp:
+                        continue
+                    try:
+                        if not cronmod.matches(str(job.get("schedule") or ""), moment):
+                            continue
+                    except cronmod.CronError:
+                        continue
+                    job["last_run_key"] = stamp
+                    job["last_run"] = int(time.time())
+                    ok, detail = await self._run_cron_job(job)
+                    job["last_status"] = ("ok " if ok else "gagal ") + detail[:200]
+                    self.log("info" if ok else "warn", f"Cron {job.get('id')}: {detail[:200]}")
+                    try:
+                        jobs = [
+                            job if str(item.get("id")) == str(job.get("id")) else item
+                            for item in self._cron_jobs()
+                        ]
+                        self._save_cron_jobs(jobs)
+                    except Exception as exc:
+                        self.log("warn", f"Gagal menyimpan status cron: {exc}")
+        except asyncio.CancelledError:
+            return
+
     # ---------- pipeline ----------
 
     async def _ask(
@@ -607,8 +939,13 @@ class DiscordBotManager:
 
     async def _handle_voice_transcript(self, user: Any, text: str) -> None:
         settings = self._settings()
-        if not settings.get("voice_enabled") or not (settings.get("model") or "").strip():
+        if not (settings.get("model") or "").strip():
             return
+        if not self.voice.status()["connected"]:
+            return
+
+        key = f"voice:{self.voice.channel_id or 'dm'}"
+        name = getattr(user, "display_name", str(user))
         guild = getattr(self.voice.voice_client, "guild", None)
         channel = self.voice._text_channel  # type: ignore[attr-defined]
         if channel is None and guild is not None:
@@ -623,8 +960,6 @@ class DiscordBotManager:
                         continue
             self.voice._text_channel = channel  # type: ignore[attr-defined]
 
-        key = f"voice:{self.voice.channel_id or 'dm'}"
-        name = getattr(user, "display_name", str(user))
         try:
             result = await self._ask(settings, key, text, name)
         except providers.ProviderError as exc:

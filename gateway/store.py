@@ -45,6 +45,7 @@ GATEWAY_DEFAULTS = {
     "voice_language": "id",
     "tts_model": "",
     "stt_model": "",
+    "cron_jobs": [],
 }
 
 SERVER_DEFAULTS = {"host": "127.0.0.1", "port": 8787, "open_browser": True}
@@ -468,6 +469,7 @@ class ConfigStore:
             "voice_language": gateway.get("voice_language") or "id",
             "tts_model": gateway.get("tts_model") or "",
             "stt_model": gateway.get("stt_model") or "",
+            "cron_jobs": list(gateway.get("cron_jobs") or []),
             "discord_token_set": bool(token),
             "discord_token_hint": ("..." + token[-4:]) if len(token) >= 4 else "",
         }

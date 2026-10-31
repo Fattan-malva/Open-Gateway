@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import provider as providers
 from .config import APP_NAME, DATA_DIR, VERSION
 from .discord import get_hub
+from .discord import cron as cronmod
 from .errors import ApiError
 from .gateway_types import GATEWAY_TYPES, gateway_type, gateway_types_public
 from .media import IMAGE_SIZES
@@ -78,6 +79,14 @@ class GatewayUpdate(BaseModel):
     voice_language: Optional[str] = None
     tts_model: Optional[str] = None
     stt_model: Optional[str] = None
+    cron_jobs: Optional[list] = None
+
+
+class CronJobUpdate(BaseModel):
+    schedule: Optional[str] = None
+    prompt: Optional[str] = None
+    channel_id: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 def _base_url() -> str:
@@ -409,6 +418,95 @@ def create_router(_bot=None) -> APIRouter:
             "settings": store.gateway_public(gateway),
             "status": hub.status(gateway_id),
         }
+
+    @router.get("/gateways/{gateway_id}/cron")
+    async def list_gateway_cron(gateway_id: str):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        jobs = cronmod.sanitize_jobs(gateway.get("cron_jobs"))
+        for j in jobs:
+            try:
+                j["next_run"] = cronmod.next_run(j["schedule"], cronmod.now()).timestamp()
+            except cronmod.CronError:
+                j["next_run"] = None
+        return {"cron_jobs": jobs}
+
+    @router.post("/gateways/{gateway_id}/cron")
+    async def create_gateway_cron(gateway_id: str, body: CronJobUpdate):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        schedule = (body.schedule or "").strip()
+        prompt = (body.prompt or "").strip()
+        channel_id = (body.channel_id or "").strip().strip("<#>")
+        try:
+            job = cronmod.make_job(schedule, prompt, channel_id)
+        except cronmod.CronError as exc:
+            raise ApiError(400, str(exc), code="invalid_cron") from exc
+        jobs = cronmod.sanitize_jobs(gateway.get("cron_jobs"))
+        if job["id"] in {j["id"] for j in jobs}:
+            raise ApiError(409, "ID cron sudah ada.", code="cron_id_exists")
+        store.update_gateway(gateway_id, {"cron_jobs": jobs + [job]})
+        return {"settings": store.gateway_public(store.get_gateway(gateway_id)),
+                "status": hub.status(gateway_id), "job": job}
+
+    @router.put("/gateways/{gateway_id}/cron/{job_id}")
+    async def update_gateway_cron(gateway_id: str, job_id: str, body: CronJobUpdate):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        jobs = cronmod.sanitize_jobs(gateway.get("cron_jobs"))
+        idx = next((i for i, j in enumerate(jobs) if str(j.get("id")) == job_id), None)
+        if idx is None:
+            raise ApiError(404, "Cron job tidak ditemukan.", code="cron_not_found")
+        job = dict(jobs[idx])
+        if body.enabled is not None:
+            job["enabled"] = bool(body.enabled)
+        if body.schedule is not None:
+            try:
+                job["schedule"] = cronmod.validate((body.schedule or "").strip())
+            except cronmod.CronError as exc:
+                raise ApiError(400, str(exc), code="invalid_cron") from exc
+        if body.prompt is not None:
+            job["prompt"] = (body.prompt or "").strip()[:4000]
+        if body.channel_id is not None:
+            cid = (body.channel_id or "").strip().strip("<#>")
+            if not cid.isdigit():
+                raise ApiError(400, "Channel ID harus berupa angka.", code="invalid_channel")
+            job["channel_id"] = cid
+        jobs[idx] = job
+        store.update_gateway(gateway_id, {"cron_jobs": jobs})
+        return {"settings": store.gateway_public(store.get_gateway(gateway_id)),
+                "status": hub.status(gateway_id), "job": job}
+
+    @router.delete("/gateways/{gateway_id}/cron/{job_id}")
+    async def delete_gateway_cron(gateway_id: str, job_id: str):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        jobs = cronmod.sanitize_jobs(gateway.get("cron_jobs"))
+        kept = [j for j in jobs if str(j.get("id")) != job_id]
+        if len(kept) == len(jobs):
+            raise ApiError(404, "Cron job tidak ditemukan.", code="cron_not_found")
+        store.update_gateway(gateway_id, {"cron_jobs": kept})
+        return {"status": "ok"}
+
+    @router.post("/gateways/{gateway_id}/cron/{job_id}/run")
+    async def run_gateway_cron(gateway_id: str, job_id: str):
+        manager = get_hub().get(gateway_id, create=False)
+        if manager is None or not manager.status().get("ready"):
+            raise ApiError(400, "Bot belum siap, cron tidak bisa dijalankan.", code="bot_not_ready")
+        jobs = manager._cron_jobs()
+        job = next((j for j in jobs if str(j.get("id")) == job_id), None)
+        if job is None:
+            raise ApiError(404, "Cron job tidak ditemukan.", code="cron_not_found")
+        ok, detail = await manager._run_cron_job(job)
+        return {"ok": ok, "detail": detail}
 
     @router.post("/gateways/{gateway_id}/start")
     async def start_gateway(gateway_id: str):
