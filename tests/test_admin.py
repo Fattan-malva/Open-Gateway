@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from gateway.admin import create_router, require_local
+from gateway.auth import authenticated, login
 from gateway.errors import ApiError
 from provider.client import ProviderError
 from gateway.store import ConfigStore
@@ -21,6 +22,7 @@ class AdminTestCase(unittest.TestCase):
         app = FastAPI()
         app.include_router(create_router(), prefix="/api")
         app.dependency_overrides[require_local] = lambda: None
+        app.dependency_overrides[__import__('gateway.auth', fromlist=['require_auth']).require_auth] = lambda: None
 
         @app.exception_handler(ApiError)
         async def _handle(_request: Request, exc: ApiError):

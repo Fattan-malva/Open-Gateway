@@ -5,15 +5,24 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  const DEFAULT_PROVIDER_TYPES = [
+    { id: "nine_router", name: "9Router", description: "Gateway model OpenAI-compatible khusus 9Router: chat, image, TTS, STT, web, dan embedding.", default_base_url: "http://localhost:20128", icon: "assets/icon-9router.svg", kinds: ["chat", "image", "tts", "stt", "web", "embedding"] },
+    { id: "openai", name: "OpenAI-compatible", description: "Endpoint OpenAI-compatible umum: /v1/chat/completions dan /v1/models.", default_base_url: "https://api.openai.com/v1", icon: "assets/icon-openai.svg", kinds: ["chat", "image", "tts", "stt", "embedding"] },
+  ];
+  const DEFAULT_GATEWAY_TYPES = [
+    { id: "discord", name: "Discord", description: "Bot Discord untuk chat, internet, gambar, dan suara.", icon: "assets/icon-discord.svg", available: true, coming_soon: false },
+    { id: "whatsapp", name: "WhatsApp", description: "Gateway WhatsApp (tampilan saja, backend menyusul).", icon: "assets/icon-whatsapp.svg", available: false, coming_soon: true },
+  ];
+
   const state = {
     tab: "gateway",
     view: { gateway: "list", provider: "list" },
     selectedGateway: null,
     selectedProvider: null,
     providers: [],
-    providerTypes: [],
+    providerTypes: DEFAULT_PROVIDER_TYPES,
     gateways: [],
-    gatewayTypes: [],
+    gatewayTypes: DEFAULT_GATEWAY_TYPES,
     models: [],
     catalog: {},
     provider: null,
@@ -637,7 +646,7 @@
 
   async function loadGatewayList() {
     const data = await api("/api/gateways");
-    state.gatewayTypes = data.types || [];
+    state.gatewayTypes = data.types?.length ? data.types : DEFAULT_GATEWAY_TYPES;
     // API mengembalikan {settings, status} per gateway: ratakan agar kartu bisa render.
     state.gateways = (Array.isArray(data.gateways) ? data.gateways : []).map((item) => {
       const settings = item && item.settings ? item.settings : item;
@@ -1324,7 +1333,7 @@
 
   async function loadProviderList() {
     const data = await api("/api/providers");
-    state.providerTypes = data.types || [];
+    state.providerTypes = data.types?.length ? data.types : DEFAULT_PROVIDER_TYPES;
     state.providers = data.providers || [];
     renderProviderCards();
   }
@@ -1507,7 +1516,16 @@
 
   /* ---------------- wiring ---------------- */
   function wire() {
-    $$(".nav-item").forEach((item) => item.addEventListener("click", () => switchTab(item.dataset.tab)));
+    $$(".nav-item[data-tab]").forEach((item) => item.addEventListener("click", () => switchTab(item.dataset.tab)));
+    $("#logout")?.addEventListener("click", async () => {
+      const button = $("#logout");
+      if (button) button.disabled = true;
+      try {
+        await fetch("/logout", { method: "POST", credentials: "same-origin" });
+      } finally {
+        location.replace("/login");
+      }
+    });
     window.addEventListener("hashchange", handleHash);
 
     // gateway
@@ -1581,6 +1599,8 @@
     createIcons();
 
     await Promise.allSettled([loadProviderList(), loadGatewayList(), refreshStatus()]);
+    renderProviderCards();
+    renderGatewayCards();
     createIcons();
     // if hash has id, open detail
     if (tab === "gateway" && id) { await openGateway(id); }

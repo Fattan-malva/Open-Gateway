@@ -3,17 +3,24 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .admin import create_router
+from .auth import SESSION_COOKIE, SESSION_TTL, authenticated, login, logout
 from .config import APP_NAME, VERSION, WEB_DIR
 from .discord import get_hub
 from .errors import ApiError
 from .store import get_store
 
 hub = get_hub()
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 @asynccontextmanager
@@ -32,6 +39,13 @@ app = FastAPI(
 )
 
 app.include_router(create_router(), prefix="/api")
+
+
+@app.middleware("http")
+async def protect_dashboard_file(request: Request, call_next):
+    if request.url.path == "/assets/index.html" and not authenticated(request):
+        return RedirectResponse("/login", status_code=303)
+    return await call_next(request)
 
 
 @app.exception_handler(ApiError)
@@ -73,13 +87,48 @@ async def health_check():
     }
 
 
+@app.post("/login")
+async def sign_in(request: Request, body: LoginRequest):
+    token = login(body.username, body.password)
+    if not token:
+        raise ApiError(401, "Username atau password salah.", error_type="authentication_error", code="invalid_credentials")
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        max_age=SESSION_TTL,
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout")
+async def sign_out(request: Request):
+    logout(request)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
 # Web UI (didaftarkan terakhir agar /api tetap menang).
 app.mount("/assets", StaticFiles(directory=str(WEB_DIR)), name="assets")
 
 
 @app.get("/app")
-def app_page():
+def app_page(request: Request):
+    if not authenticated(request):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if authenticated(request):
+        return RedirectResponse("/app", status_code=303)
+    return FileResponse(WEB_DIR / "login.html")
 
 
 @app.get("/", include_in_schema=False)

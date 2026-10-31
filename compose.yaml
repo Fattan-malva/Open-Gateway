@@ -1,0 +1,16 @@
+services:
+  open-gateway:
+    build: .
+    container_name: open-gateway
+    restart: unless-stopped
+    expose:
+      - "8787"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+
+networks:
+  default:
+    name: app-network
+    external: true

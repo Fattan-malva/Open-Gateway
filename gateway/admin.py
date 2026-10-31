@@ -10,6 +10,7 @@ from .config import APP_NAME, DATA_DIR, VERSION
 from .discord import get_hub
 from .discord import cron as cronmod
 from .errors import ApiError
+from .auth import require_auth
 from .gateway_types import GATEWAY_TYPES, gateway_type, gateway_types_public
 from .media import IMAGE_SIZES
 from .store import get_store
@@ -116,7 +117,7 @@ def _provider_cfg(provider: dict) -> dict:
 
 
 def create_router(_bot=None) -> APIRouter:
-    router = APIRouter(dependencies=[Depends(require_local)])
+    router = APIRouter(dependencies=[Depends(require_auth)])
     hub = get_hub()
 
     @router.get("/status")

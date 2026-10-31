@@ -32,3 +32,6 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Skrip redeploy lokal (VPS-only)
+.restart.sh
