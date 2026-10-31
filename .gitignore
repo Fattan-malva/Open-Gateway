@@ -1,5 +1,34 @@
 __pycache__/
 *.py[cod]
+
+# Secret & data lokal: token Discord, API key provider, katalog model
 .env
+.env.*
+!.env.example
 data/
+
+# Test & cache
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Lingkungan virtual & editor
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+*.swp
+
+# Log & artefak sementara
+*.log
+logs/
+tmp/
+temp/
+*.bak
+*.tmp
+
+# Sistem operasi
+.DS_Store
+Thumbs.db
+desktop.ini
