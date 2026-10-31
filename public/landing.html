@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Open Gateway — model AI ke bot Discord</title>
+  <meta name="description"
+    content="Open Gateway menghubungkan model AI dari provider OpenAI-compatible ke bot Discord. Atur model, token, dan pemicu balasan dari satu web UI lokal." />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="assets/theme.js"></script>
+</head>
+
+<body class="is-landing">
+  <header class="lp-top">
+    <div class="lp-wrap">
+      <a class="lp-brand" href="/">Open Gateway</a>
+      <nav class="lp-nav" aria-label="Navigasi">
+        <a class="lp-link hide-sm" href="#fitur">Fitur</a>
+        <a class="lp-link hide-sm" href="#cara">Cara kerja</a>
+        <a class="btn primary" href="/app">Buka aplikasi</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="lp-wrap lp-hero">
+      <p class="lp-eyebrow">Open Gateway · lokal &amp; OpenAI-compatible</p>
+      <h1>Satu gateway untuk model AI di Discord.</h1>
+      <p class="lp-lead">
+        Hubungkan ratusan model dari provider OpenAI-compatible ke bot Discord milikmu.
+        Pilih model, atur cara bot merespons, lalu jalankan — semuanya dari web UI lokal.
+      </p>
+      <div class="lp-cta">
+        <a class="btn primary" href="/app">Buka aplikasi</a>
+        <a class="btn ghost" href="#cara">Lihat cara kerja</a>
+      </div>
+
+      <div class="lp-preview" aria-hidden="true">
+        <div class="lp-preview-bar">
+          <span class="lp-url">discord · #general</span>
+        </div>
+        <div class="lp-preview-body">
+          <div class="lp-msg-user">@OpenGateway rangkum diskusi di channel ini</div>
+          <div class="lp-msg-ai">
+            <strong>Open Gateway</strong>
+            <p class="muted" style="margin: 6px 0 0;">
+              Siap. Bot memakai model yang dipilih di tab Gateway, memanggil provider
+              lewat <span class="mono">/chat/completions</span>, lalu membalas di Discord
+              dengan riwayat percakapan per channel.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-wrap lp-section" id="fitur">
+      <h2>Dua menu, alur yang jelas.</h2>
+      <p class="lp-sub">Atur sumber model di AI Provider, lalu tentukan bagaimana model itu hidup di Discord.</p>
+      <div class="lp-features">
+        <div class="lp-feature">
+          <h3>AI Provider</h3>
+          <p>
+            Simpan Base URL dan API key OpenAI-compatible. Semua model dari endpoint
+            <span class="mono">/models</span> langsung tampil dan bisa dicari.
+          </p>
+        </div>
+        <div class="lp-feature">
+          <h3>Gateway Discord</h3>
+          <p>
+            Tempel token bot, pilih model, dan atur pemicu balasan: mention, DM,
+            prefix, atau semua pesan di satu channel.
+          </p>
+        </div>
+        <div class="lp-feature">
+          <h3>Riwayat per channel</h3>
+          <p>
+            Bot mengingat konteks percakapan di tiap channel dengan batas riwayat
+            yang bisa kamu atur. <span class="mono">!ai reset</span> membersihkannya.
+          </p>
+        </div>
+        <div class="lp-feature">
+          <h3>Lokal &amp; privat</h3>
+          <p>
+            Server hanya berjalan di localhost. Token dan API key disimpan di folder
+            <span class="mono">data</span> di mesinmu, bukan di cloud.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="lp-wrap lp-section" id="cara">
+      <h2>Menjalankan dalam tiga langkah.</h2>
+      <p class="lp-sub">Satu perintah menjalankan server dan web UI. Bot ikut menyala otomatis bila token sudah tersimpan.</p>
+      <ol class="lp-steps">
+        <li>
+          <strong>Jalankan server</strong>
+          <span><span class="mono">py main.py</span> lalu buka <span class="mono">http://127.0.0.1:8787</span>.
+            Halaman aplikasi ada di <span class="mono">/app</span>.</span>
+        </li>
+        <li>
+          <strong>Hubungkan provider</strong>
+          <span>Di tab <strong>AI Provider</strong>, isi Base URL dan API key. Klik
+            <strong>Simpan &amp; muat model</strong> untuk mengambil seluruh daftar model.</span>
+        </li>
+        <li>
+          <strong>Nyalakan bot</strong>
+          <span>Di tab <strong>Gateway</strong>, tempel token bot Discord, pilih model, atur pemicu,
+            lalu tekan <strong>Start</strong>. Aktifkan Message Content Intent di Developer Portal.</span>
+        </li>
+      </ol>
+      <div class="lp-cta">
+        <a class="btn primary" href="/app">Mulai atur gateway</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lp-foot">
+    <div class="lp-wrap">
+      <span>Open Gateway</span>
+      <span>Model AI → Discord · berjalan lokal</span>
+    </div>
+  </footer>
+</body>
+
+</html>

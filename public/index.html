@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Open Gateway</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <script src="assets/theme.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-head">
+        <img src="favicon.svg" alt="" width="18" height="18" />
+        <strong>Open Gateway</strong>
+      </div>
+      <span>Multi gateway &amp; provider</span>
+    </div>
+
+    <nav class="nav" aria-label="Navigasi utama">
+      <button class="nav-item is-active" data-tab="gateway">
+        <i data-lucide="bot"></i><span>Gateway</span>
+      </button>
+      <button class="nav-item" data-tab="provider">
+        <i data-lucide="server"></i><span>AI Provider</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="status-line">
+        <span class="dot" id="health-dot"></span>
+        <span class="status-text" id="health-text">menghubungkan…</span>
+      </div>
+      <div class="foot-row">
+        <div class="muted small foot-meta" id="app-version"></div>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Ganti tema"></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- GATEWAY -->
+    <section class="panel is-active" id="panel-gateway">
+      <div id="gateway-list-view">
+        <header class="panel-head">
+          <div>
+            <h1>Gateway</h1>
+            <p class="muted">Pilih gateway yang ingin dikelola.</p>
+          </div>
+        </header>
+        <div class="card-grid" id="gateway-cards"></div>
+      </div>
+
+      <div id="gateway-detail-view" class="hidden">
+        <header class="panel-head">
+          <div class="row gap">
+            <button class="btn ghost small icon-only" id="gw-back" aria-label="Kembali" title="Kembali"><i data-lucide="arrow-left"></i></button>
+            <div>
+              <h1 id="gw-detail-title">Gateway</h1>
+            </div>
+          </div>
+          <div class="row gap wrap">
+            <span class="badge" id="gw-state-pill">berhenti</span>
+            <button class="btn primary" id="gw-start"><i data-lucide="play"></i> Start</button>
+            <button class="btn ghost" id="gw-restart"><i data-lucide="rotate-cw"></i> Restart</button>
+            <button class="btn ghost" id="gw-stop"><i data-lucide="square"></i> Stop</button>
+            <button class="btn ghost" id="gw-delete"><i data-lucide="trash-2"></i> Hapus</button>
+          </div>
+        </header>
+
+        <div class="notice error hidden" id="gw-alert"></div>
+        <div class="notice warn hidden" id="gw-coming-soon"></div>
+
+        <div id="gw-config-area" class="hidden">
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-title">Status bot</div>
+              <dl class="kv">
+                <dt>State</dt><dd><span class="badge" id="gw-state">—</span></dd>
+                <dt>Bot</dt><dd id="gw-user">—</dd>
+                <dt>Server</dt><dd id="gw-guilds">—</dd>
+                <dt>Latency</dt><dd id="gw-latency">—</dd>
+                <dt>Uptime</dt><dd id="gw-uptime">—</dd>
+                <dt>Pesan diproses</dt><dd id="gw-handled">—</dd>
+                <dt>Model aktif</dt><dd class="mono break" id="gw-active-model">—</dd>
+                <dt>Internet</dt><dd id="gw-internet-state">—</dd>
+                <dt>Gambar</dt><dd id="gw-image-state">—</dd>
+                <dt>Voice</dt><dd id="gw-voice-state">—</dd>
+                <dt>Error terakhir</dt><dd id="gw-last-error">—</dd>
+              </dl>
+            </div>
+            <div class="card">
+              <div class="card-title">Cara pakai</div>
+              <ol class="notes steps">
+                <li>Buat aplikasi + bot di <strong>Discord Developer Portal</strong>, aktifkan <strong>Message Content Intent</strong>.</li>
+                <li>Undang bot ke server dengan scope <span class="mono">bot</span>.</li>
+                <li>Tempel token, pilih model, lalu tekan <strong>Start</strong>.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Konfigurasi</div>
+            <form id="gw-form" class="form-grid" autocomplete="off">
+              <label class="field span-2">
+                <span>Provider AI</span>
+                <select id="gw-provider"></select>
+              </label>
+
+              <label class="field span-2">
+                <span>Discord bot token</span>
+                <input type="password" id="gw-token" placeholder="Masukkan bot token" autocomplete="new-password" />
+                <small class="muted" id="gw-token-hint">Token disimpan lokal di folder data.</small>
+              </label>
+
+              <div class="field span-2">
+                <span>Model AI</span>
+                <div class="model-picker">
+                  <select id="gw-model" aria-label="Pilih model AI"></select>
+                </div>
+                <small class="muted" id="gw-model-hint">Belum ada model. Buka tab AI Provider untuk memuat daftar model.</small>
+              </div>
+
+              <label class="field">
+                <span>Pemicu balasan</span>
+                <select id="gw-trigger">
+                  <option value="mention">Saat di-mention atau DM</option>
+                  <option value="prefix">Prefix di semua channel</option>
+                  <option value="all">Semua pesan di satu channel</option>
+                </select>
+              </label>
+
+              <label class="field hidden" id="gw-channel-field">
+                <span>Channel ID</span>
+                <input type="text" id="gw-channel" placeholder="mis. 123456789012345678" inputmode="numeric" />
+              </label>
+
+              <label class="field hidden" id="gw-prefix-field">
+                <span>Prefix</span>
+                <input type="text" id="gw-prefix" placeholder="!ai" />
+              </label>
+
+              <label class="field">
+                <span>Riwayat pesan</span>
+                <input type="number" id="gw-history" min="2" max="50" step="1" />
+              </label>
+
+              <label class="field">
+                <span>Maks. token jawaban</span>
+                <input type="number" id="gw-max-tokens" min="128" max="8192" step="128" />
+              </label>
+
+              <label class="field span-2">
+                <span>System prompt</span>
+                <textarea id="gw-system" rows="4" placeholder="Instruksi untuk model..."></textarea>
+              </label>
+
+              <div class="form-section span-2">
+                <div class="form-section-head"><i data-lucide="globe"></i><div><strong>Internet</strong><small class="muted">AI bisa mencari dan membaca halaman web.</small></div></div>
+                <div class="form-grid">
+                  <div class="field switch-field"><span>Akses internet</span><label class="switch"><input type="checkbox" id="gw-internet" /><span class="switch-track"></span><span class="switch-text">Aktifkan pencarian &amp; baca halaman</span></label></div>
+                  <label class="field"><span>Maks. hasil pencarian</span><input type="number" id="gw-web-results" min="1" max="10" step="1" /></label>
+                  <label class="field"><span>Model web search (opsional)</span><input type="text" id="gw-web-search-model" placeholder="Kosongkan = otomatis" /></label>
+                  <label class="field"><span>Model web fetch (opsional)</span>
+                    <select id="gw-web-fetch-model"></select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-section span-2">
+                <div class="form-section-head"><i data-lucide="image"></i><div><strong>Gambar</strong><small class="muted">AI bisa membuat gambar dari deskripsi.</small></div></div>
+                <div class="form-grid">
+                  <div class="field switch-field"><span>Pembuatan gambar</span><label class="switch"><input type="checkbox" id="gw-image" /><span class="switch-track"></span><span class="switch-text">Aktifkan tool gambar</span></label></div>
+                  <div class="field"><span>Cadangan gratis</span><label class="switch"><input type="checkbox" id="gw-image-fallback" /><span class="switch-track"></span><span class="switch-text">Pakai pollinations.ai bila model gagal</span></label></div>
+                  <label class="field"><span>Model gambar</span>
+                    <select id="gw-image-model"></select>
+                  </label>
+                  <label class="field"><span>Ukuran gambar</span><select id="gw-image-size">
+                    <option value="1024x1024">1024 × 1024 (persegi)</option>
+                    <option value="1792x1024">1792 × 1024 (lebar)</option>
+                    <option value="1024x1792">1024 × 1792 (potret)</option>
+                    <option value="512x512">512 × 512 (kecil)</option>
+                  </select></label>
+                  <label class="field span-2"><span>Token pollinations (opsional)</span><input type="password" id="gw-image-token" placeholder="Kosongkan untuk batas gratis" /></label>
+                </div>
+              </div>
+
+              <div class="form-section span-2">
+                <div class="form-section-head"><i data-lucide="mic"></i><div><strong>Suara</strong><small class="muted">Bot bisa masuk voice channel, mendengarkan, dan menjawab dengan suara.</small></div></div>
+                <div class="form-grid">
+                  <div class="field switch-field"><span>Fitur suara</span><label class="switch"><input type="checkbox" id="gw-voice" /><span class="switch-track"></span><span class="switch-text">Aktifkan voice channel</span></label></div>
+                  <div class="field switch-field"><span>Gabung otomatis</span><label class="switch"><input type="checkbox" id="gw-voice-autojoin" /><span class="switch-track"></span><span class="switch-text">Masuk voice channel saat bot online</span></label></div>
+                  <label class="field"><span>Voice Channel ID</span><input type="text" id="gw-voice-channel" placeholder="mis. 123456789012345678" inputmode="numeric" /></label>
+                  <label class="field"><span>Bahasa suara</span><input type="text" id="gw-voice-language" placeholder="id" /></label>
+                  <div class="field switch-field"><span>Mendengarkan</span><label class="switch"><input type="checkbox" id="gw-voice-listen" /><span class="switch-track"></span><span class="switch-text">Dengarkan dan balas suara orang lain</span></label></div>
+                  <label class="field"><span>Model suara (TTS)</span>
+                    <select id="gw-tts-model"></select>
+                  </label>
+                  <label class="field"><span>Model transkripsi (STT)</span>
+                    <select id="gw-stt-model"></select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-actions span-2">
+                <button class="btn primary" type="submit" id="gw-save">Simpan konfigurasi</button>
+                <span class="muted small">Perubahan model langsung dipakai. Token baru perlu restart bot.</span>
+              </div>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="row between wrap gap">
+              <div class="card-title">Aktivitas</div>
+              <button class="btn ghost small" id="gw-clear-logs">Bersihkan</button>
+            </div>
+            <div class="log-list" id="gw-logs"><p class="muted small">Belum ada aktivitas.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI PROVIDER -->
+    <section class="panel" id="panel-provider">
+      <div id="provider-list-view">
+        <header class="panel-head">
+          <div>
+            <h1>AI Provider</h1>
+            <p class="muted">Pilih provider yang ingin dikelola.</p>
+          </div>
+        </header>
+        <div class="card-grid" id="provider-cards"></div>
+      </div>
+
+      <div id="provider-detail-view" class="hidden">
+        <header class="panel-head">
+          <div class="row gap">
+            <button class="btn ghost small icon-only" id="pv-back" aria-label="Kembali" title="Kembali"><i data-lucide="arrow-left"></i></button>
+            <div>
+              <h1 id="pv-detail-title">AI Provider</h1>
+            </div>
+          </div>
+          <div class="row gap wrap">
+            <button class="btn ghost" id="pv-refresh"><i data-lucide="refresh-cw"></i> Muat ulang model</button>
+            <button class="btn primary" id="pv-save"><i data-lucide="save"></i> Simpan</button>
+            <button class="btn ghost" id="pv-delete"><i data-lucide="trash-2"></i> Hapus</button>
+          </div>
+        </header>
+
+        <div class="notice warn hidden" id="pv-warning"></div>
+
+        <div class="card">
+          <div class="card-title">Koneksi provider</div>
+          <form id="pv-form" class="form-grid" autocomplete="off">
+            <label class="field span-2">
+              <span>Base URL</span>
+              <input type="text" id="pv-base" placeholder="http://localhost:20128" />
+            </label>
+            <label class="field span-2">
+              <span>API key</span>
+              <input type="password" id="pv-key" placeholder="sk-..." autocomplete="new-password" />
+              <small class="muted">Dipakai untuk memanggil <span class="mono">/models</span> dan <span class="mono">/chat/completions</span>.</small>
+            </label>
+            <div class="form-actions span-2">
+              <button class="btn primary" type="submit">Simpan &amp; muat model</button>
+              <span class="muted small" id="pv-meta">Belum ada sinkronisasi.</span>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row between wrap gap">
+            <div class="card-title">Model tersedia <span class="muted" id="pv-count"></span></div>
+            <input type="text" id="pv-filter" placeholder="Cari model..." />
+          </div>
+          <div class="table-wrap models-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model</th><th>Owner</th><th>Context</th><th>Fitur</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="pv-models">
+                <tr><td colspan="5" class="muted">Memuat…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

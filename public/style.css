@@ -1,4 +1,4 @@
-/* open-masking — minimal, light dan dark.
+/* Open Gateway — minimal, light dan dark.
    Palet netral, satu warna aksen dari teks itu sendiri, tanpa gradien, tanpa blur. */
 
 :root {
@@ -329,15 +329,59 @@ svg.lucide {
 .panel {
   display: none;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   height: 100vh;
-  padding: 32px 40px 24px;
+  padding: 32px 40px 40px;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   animation: enter 0.2s ease;
 }
 
 .panel.is-active {
   display: flex;
+}
+
+/* jangan biarkan isi panel menyusut (bikin card paling bawah terpotong) */
+.panel > * {
+  flex: 0 0 auto;
+}
+
+/* card terakhir selalu punya ruang bernapas di bawah */
+.panel > :last-child,
+#gw-config-area > :last-child {
+  margin-bottom: 4px;
+}
+
+#gateway-list-view,
+#gateway-detail-view,
+#provider-list-view,
+#provider-detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+}
+
+#gateway-detail-view .panel-head,
+#provider-detail-view .panel-head {
+  flex-shrink: 0;
+}
+
+/* status + cara pakai: tinggi sama */
+#gw-config-area {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+}
+
+#gw-config-area > .grid-2 {
+  align-items: stretch;
+}
+
+#gw-config-area > .grid-2 > .card {
+  height: 100%;
 }
 
 @keyframes enter {
@@ -397,6 +441,45 @@ svg.lucide {
   cursor: not-allowed;
 }
 
+/* ---------- animasi loading tombol ---------- */
+.btn.is-loading {
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.btn.is-loading > svg,
+.btn.is-loading > i {
+  display: none;
+}
+
+.btn.is-loading::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.7;
+  animation: btn-spin 0.65s linear infinite;
+}
+
+.btn.is-loading.icon-only::before {
+  margin: 0;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn.is-loading::before {
+    animation-duration: 1.6s;
+  }
+}
+
 .btn.primary {
   background: var(--solid);
   border-color: var(--solid);
@@ -428,6 +511,35 @@ svg.lucide {
   height: 28px;
   padding: 0 9px;
   font-size: 12.5px;
+}
+
+.btn.icon-only {
+  width: 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.btn.icon-only:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.panel-head > .row {
+  align-items: center;
+  gap: 8px;
+}
+
+/* tombol back sejajar dengan judul (bukan menggantung di atasnya) */
+.panel-head > .row > .btn.icon-only {
+  margin-top: 0;
+  align-self: center;
+}
+
+.panel-head > .row h1 {
+  margin: 0;
+  line-height: 1.35;
 }
 
 .field {
@@ -1718,3 +1830,576 @@ body.is-landing {
     gap: 6px;
   }
 }
+/* ---------- Forms (Open Gateway) ---------- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.field {
+  min-width: 0;
+}
+
+.field > small {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.field input[type="password"],
+.field input[type="number"] {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field input[type="password"]:focus,
+.field input[type="number"]:focus {
+  border-color: var(--text-faint);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.field textarea {
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.field textarea:focus {
+  border-color: var(--text-faint);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.model-picker {
+  display: block;
+  min-width: 0;
+}
+
+.model-picker .combo { width: 100%; }
+
+.model-picker input,
+.model-picker select {
+  min-width: 0;
+}
+
+.row.between {
+  justify-content: space-between;
+}
+
+.row .card-title {
+  margin-bottom: 0;
+}
+
+/* ---------- Steps & command hint ---------- */
+
+.steps {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.steps li {
+  margin: 0 0 8px;
+}
+
+.steps li:last-child {
+  margin-bottom: 0;
+}
+
+.steps strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.command-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* ---------- Model table ---------- */
+
+.models-table {
+  max-height: 440px;
+  overflow: auto;
+}
+
+.models-table table th,
+.models-table table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.models-table table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.models-table table td:first-child {
+  white-space: normal;
+  min-width: 220px;
+}
+
+.models-table table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.models-table table tbody tr.is-used {
+  background: var(--surface-2);
+}
+
+.models-table table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.models-table .chips {
+  gap: 4px;
+}
+
+.models-table .chips .badge {
+  height: 19px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.models-table td.right {
+  text-align: right;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* ---------- Activity log ---------- */
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.log-list > p {
+  margin: 0;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 68px 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.log-row:last-child {
+  border-bottom: 0;
+}
+
+.log-time {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.log-level {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.log-row.log-ok .log-level {
+  color: var(--ok);
+}
+
+.log-row.log-warn .log-level {
+  color: var(--warn);
+}
+
+.log-row.log-error .log-level {
+  color: var(--danger);
+}
+
+.log-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+}
+
+@media (max-width: 720px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-row {
+    grid-template-columns: 62px 46px minmax(0, 1fr);
+  }
+}
+
+/* ---------- Feature sections & switches ---------- */
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.form-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.form-section-head > svg {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  color: var(--text-dim);
+}
+
+.form-section-head div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.form-section-head strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.form-section-head small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-section .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.switch-field > .switch {
+  margin-top: 2px;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.switch-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--solid);
+  border-color: var(--solid);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(14px);
+  background: var(--solid-ink);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--text-faint);
+  outline-offset: 2px;
+}
+
+.switch-text {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.switch input:checked ~ .switch-text {
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .form-section .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- searchable combobox (select + search) ---------- */
+select.combo-native { display: none; }
+
+.combo { position: relative; width: 100%; }
+
+.combo-toggle {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.combo-toggle:focus-visible,
+.combo.is-open .combo-toggle {
+  border-color: var(--text-faint);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.combo-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-value.is-placeholder { color: var(--text-faint); }
+
+.combo-caret {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.combo.is-open .combo-caret { transform: rotate(180deg); }
+
+.combo-panel {
+  position: fixed;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  padding: 6px;
+}
+
+.combo-panel[hidden] {
+  display: none;
+}
+
+.combo-search {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+}
+
+.combo-options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.combo-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.combo-option-main,
+.combo-option-sub {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.combo-option-sub {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.combo-option:hover { background: var(--surface-2); }
+
+.combo-option:focus { background: var(--surface-2); }
+
+.combo-panel.is-up { box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.22); }
+
+.combo-option.is-active {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.combo-empty {
+  padding: 8px 9px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ---------- card grid for multi-provider/multi-gateway ---------- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 0;
+  align-items: stretch;
+  align-content: start;
+}
+.card.clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.card.clickable:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+.card-instance.is-soon { opacity: .55; cursor: default; }
+.card-instance.is-soon:hover { transform: none; box-shadow: none; }
+
+/* icon hanya sejajar dengan judul, deskripsi di bawahnya (lebar penuh) */
+.card-head,
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.card-head .card-title { margin: 0; }
+
+.card-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+/* icon monokrom (OpenAI) ikut warna tema */
+:root[data-theme="dark"] .icon-mono { filter: invert(1); }
+
+.card-desc {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.card-facts {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.card-facts li {
+  display: flex;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+
+.card-facts li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.card-facts li > span { min-width: 0; }
+
+.card-facts li b { color: var(--text-dim); font-weight: 600; }
+
+.card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.card-instance, .card-add {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.card-instance .card-meta, .card-add .card-meta { margin-top: auto; padding-top: 12px; }

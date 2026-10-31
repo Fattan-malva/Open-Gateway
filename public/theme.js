@@ -2,14 +2,17 @@
 (() => {
   "use strict";
 
-  const KEY = "open-masking-theme";
+  const KEY = "open-gateway-theme";
+  const LEGACY_KEY = "open-masking-theme";
   const root = document.documentElement;
   const media = window.matchMedia("(prefers-color-scheme: dark)");
 
   function readSaved() {
     try {
       const value = localStorage.getItem(KEY);
-      return value === "light" || value === "dark" ? value : null;
+      if (value === "light" || value === "dark") return value;
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      return legacy === "light" || legacy === "dark" ? legacy : null;
     } catch {
       return null;
     }

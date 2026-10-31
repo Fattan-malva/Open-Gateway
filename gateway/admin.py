@@ -1,28 +1,21 @@
-"""Endpoint admin untuk web UI open-masking (hanya localhost)."""
-import asyncio
-import json
-from typing import List, Optional
+"""Endpoint admin untuk web UI Open Gateway (hanya localhost)."""
+import time
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .auth import get_store
-from .config import (
-    APP_NAME,
-    DATA_DIR,
-    HOST,
-    MAX_PROMPT_CHARS,
-    MODEL_IDS,
-    PORT,
-    PROFILE_DIR,
-    REPLY_TIMEOUT,
-    VERSION,
-)
-from .engine import GatewayEngine
+import provider as providers
+from .config import APP_NAME, DATA_DIR, VERSION
+from .discord import get_hub
 from .errors import ApiError
+from .gateway_types import GATEWAY_TYPES, gateway_type, gateway_types_public
+from .media import IMAGE_SIZES
+from .store import get_store
 
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"}
+
+TRIGGERS = {"mention", "all", "prefix"}
 
 
 async def require_local(request: Request):
@@ -36,195 +29,504 @@ async def require_local(request: Request):
         )
 
 
-class KeyCreateRequest(BaseModel):
+class ProviderCreate(BaseModel):
+    type: str = "nine_router"
     name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    fetch: bool = True
 
 
-class PlaygroundMessage(BaseModel):
-    role: str
-    content: str = ""
+class ProviderUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    fetch: Optional[bool] = True
 
 
-class PlaygroundRequest(BaseModel):
-    model: str = "deepseek-chat"
-    messages: List[PlaygroundMessage]
-    thinking: Optional[bool] = None
-    search: Optional[bool] = False
+class GatewayCreate(BaseModel):
+    type: str = "discord"
+    name: Optional[str] = None
+    provider_id: Optional[str] = None
 
 
-class ConfirmRequest(BaseModel):
-    confirm: bool = False
+class GatewayUpdate(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    provider_id: Optional[str] = None
+    discord_token: Optional[str] = None
+    model: Optional[str] = None
+    system_prompt: Optional[str] = None
+    trigger: Optional[str] = None
+    prefix: Optional[str] = None
+    channel_id: Optional[str] = None
+    max_history: Optional[int] = None
+    max_tokens: Optional[int] = None
+    internet_enabled: Optional[bool] = None
+    web_search_model: Optional[str] = None
+    web_fetch_model: Optional[str] = None
+    web_max_results: Optional[int] = None
+    image_enabled: Optional[bool] = None
+    image_model: Optional[str] = None
+    image_size: Optional[str] = None
+    image_fallback: Optional[bool] = None
+    image_token: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+    voice_channel_id: Optional[str] = None
+    voice_autojoin: Optional[bool] = None
+    voice_listen: Optional[bool] = None
+    voice_language: Optional[str] = None
+    tts_model: Optional[str] = None
+    stt_model: Optional[str] = None
 
 
 def _base_url() -> str:
-    host = HOST
+    server = get_store().get_server()
+    host = server.get("host") or "127.0.0.1"
     if host in ("0.0.0.0", "::", ""):
         host = "127.0.0.1"
-    return f"http://{host}:{PORT}/v1"
+    port = server.get("port") or 8787
+    return f"http://{host}:{port}"
 
 
-def _sse(payload: dict) -> str:
-    return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+def _clean_base_url(raw: str) -> str:
+    value = (raw or "").strip().rstrip("/")
+    if not value:
+        raise ApiError(400, "Base URL provider wajib diisi.", code="invalid_base_url")
+    if not value.startswith(("http://", "https://")):
+        raise ApiError(
+            400,
+            "Base URL harus diawali http:// atau https://.",
+            code="invalid_base_url",
+        )
+    return value
 
 
-def create_router(engine: GatewayEngine) -> APIRouter:
+def _provider_cfg(provider: dict) -> dict:
+    return provider or {}
+
+
+def create_router(_bot=None) -> APIRouter:
     router = APIRouter(dependencies=[Depends(require_local)])
+    hub = get_hub()
 
     @router.get("/status")
     async def status():
-        keys = get_store().list_keys()
+        store = get_store()
+        providers_list = store.list_providers()
+        configured = any(
+            p.get("base_url") and p.get("api_key") for p in providers_list
+        )
         return {
             "app": APP_NAME,
             "version": VERSION,
             "base_url": _base_url(),
-            "models": list(MODEL_IDS),
-            "browser": await engine.browser_status(),
-            "keys": {
-                "total": len(keys),
-                "active": sum(1 for key in keys if not key.get("revoked")),
+            "provider": {
+                "configured": configured,
+                "count": len(providers_list),
             },
-            "limits": {
-                "max_prompt_chars": MAX_PROMPT_CHARS,
-                "reply_timeout": REPLY_TIMEOUT,
-            },
-            "paths": {
-                "data": str(DATA_DIR),
-                "profile": str(PROFILE_DIR),
-            },
+            "gateways": hub.status(),
+            "paths": {"data": str(DATA_DIR)},
         }
 
-    @router.get("/keys")
-    async def list_keys():
-        return {"keys": get_store().list_keys()}
+    # ---------- provider types & providers ----------
 
-    @router.post("/keys")
-    async def create_key(body: KeyCreateRequest):
-        record, raw = get_store().create(body.name or "opencode")
-        return {"key": raw, "record": record}
+    @router.get("/provider/types")
+    async def provider_types():
+        return {"types": providers.provider_types_public()}
 
-    @router.post("/keys/{key_id}/revoke")
-    async def revoke_key(key_id: str):
-        if not get_store().revoke(key_id):
-            raise ApiError(404, "API key tidak ditemukan.", code="key_not_found")
-        return {"ok": True}
-
-    @router.get("/browser")
-    async def browser_status():
-        return await engine.browser_status()
-
-    @router.post("/browser/login")
-    async def browser_login():
-        started = engine.start_login()
-        return {"started": started, "browser": await engine.browser_status()}
-
-    @router.post("/browser/restart")
-    async def browser_restart():
-        try:
-            await engine.restart_browser()
-        except Exception as exc:
-            raise ApiError(503, f"Browser gagal dijalankan: {exc}", code="browser_error") from exc
-        return {"browser": await engine.browser_status()}
-
-    @router.post("/browser/close")
-    async def browser_close():
-        await engine.close_browser()
-        return {"browser": await engine.browser_status()}
-
-    @router.post("/browser/reset")
-    async def browser_reset(body: ConfirmRequest):
-        if not body.confirm:
-            raise ApiError(
-                400,
-                "Kirim {\"confirm\": true} untuk menghapus profil Chrome dan cookies.",
-                code="confirmation_required",
-            )
-        await engine.reset_profile()
-        return {"browser": await engine.browser_status()}
-
-    @router.post("/playground/reset")
-    async def playground_reset():
-        await engine.reset_conversation()
-        return {"ok": True}
-
-    @router.post("/playground/chat")
-    async def playground_chat(body: PlaygroundRequest):
-        if not body.messages:
-            raise ApiError(400, "Pesan tidak boleh kosong.")
-        if not any(message.role in ("user", "tool") for message in body.messages):
-            raise ApiError(400, "Tidak ada pesan pengguna.")
-
-        payload = {
-            "model": body.model,
-            "messages": [
-                {"role": message.role, "content": message.content}
-                for message in body.messages
-            ],
-            "thinking": body.thinking,
-            "search": body.search,
-            "tools": None,
-            "tool_choice": None,
-            "parallel_tool_calls": None,
-        }
-        return StreamingResponse(
-            _playground_stream(engine, payload),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    @router.get("/connect")
-    async def connect_info():
-        keys = [key for key in get_store().list_keys() if not key.get("revoked")]
+    @router.get("/providers")
+    async def list_providers():
+        store = get_store()
         return {
-            "app": APP_NAME,
-            "base_url": _base_url(),
-            "models": list(MODEL_IDS),
-            "active_keys": len(keys),
-            "key_prefixes": [key.get("prefix") for key in keys],
-            "paths": {
-                "data": str(DATA_DIR),
-                "profile": str(PROFILE_DIR),
-            },
+            "types": providers.provider_types_public(),
+            "providers": [store.provider_public(p) for p in store.list_providers()],
         }
+
+    @router.post("/providers")
+    async def create_provider(body: ProviderCreate):
+        if body.type not in providers.PROVIDER_TYPES:
+            raise ApiError(400, "Tipe provider tidak dikenal.", code="invalid_provider_type")
+        meta = providers.provider_type(body.type)
+        base_url = body.base_url
+        if base_url:
+            base_url = _clean_base_url(base_url)
+        else:
+            base_url = meta["default_base_url"]
+        api_key = (body.api_key or "").strip()
+        provider = get_store().add_provider(body.type, body.name, base_url, api_key)
+        warning = None
+        catalog_errors = {}
+        if body.fetch and base_url and api_key:
+            try:
+                result = await providers.fetch_catalog(provider)
+                # provider dict from store lacks? fetch_catalog reads cfg fields
+                get_store().set_catalog(provider["id"], result["catalog"], int(time.time()))
+                catalog_errors = result.get("errors", {})
+            except providers.ProviderError as exc:
+                warning = exc.message
+            except Exception as exc:
+                warning = f"Gagal memuat model: {exc}"
+        return {
+            "provider": get_store().provider_public(get_store().get_provider(provider["id"])),
+            "warning": warning,
+            "catalog_errors": catalog_errors,
+        }
+
+    @router.get("/providers/{provider_id}")
+    async def get_provider(provider_id: str):
+        provider = get_store().get_provider(provider_id)
+        if not provider:
+            raise ApiError(404, "Provider tidak ditemukan.", code="provider_not_found")
+        return get_store().provider_public(provider)
+
+    @router.post("/providers/{provider_id}")
+    async def update_provider(provider_id: str, body: ProviderUpdate):
+        store = get_store()
+        current = store.get_provider(provider_id)
+        if not current:
+            raise ApiError(404, "Provider tidak ditemukan.", code="provider_not_found")
+
+        changes = {}
+        if body.name is not None:
+            changes["name"] = body.name.strip() or current.get("name")
+        base_url = current.get("base_url") or ""
+        if body.base_url is not None:
+            base_url = _clean_base_url(body.base_url)
+            changes["base_url"] = base_url
+        api_key = (body.api_key or "").strip()
+        if api_key:
+            changes["api_key"] = api_key
+        elif not (current.get("api_key") or "").strip() and not body.base_url:
+            pass
+
+        # update base/name/api_key
+        store.update_provider(provider_id, changes)
+
+        warning = None
+        catalog_errors = {}
+        should_fetch = body.fetch if body.fetch is not None else True
+        provider_cfg = store.get_provider(provider_id)
+        if should_fetch and provider_cfg.get("base_url") and provider_cfg.get("api_key"):
+            # fetch only if base_url or api_key changed or forced
+            try:
+                result = await providers.fetch_catalog(provider_cfg)
+                store.set_catalog(provider_id, result["catalog"], int(time.time()))
+                catalog_errors = result.get("errors", {})
+            except providers.ProviderError as exc:
+                warning = exc.message
+            except Exception as exc:
+                warning = f"Gagal memuat model: {exc}"
+
+        return {
+            "provider": store.provider_public(store.get_provider(provider_id)),
+            "warning": warning,
+            "catalog_errors": catalog_errors,
+        }
+
+    @router.post("/providers/{provider_id}/refresh")
+    async def refresh_provider(provider_id: str):
+        store = get_store()
+        provider_cfg = store.get_provider(provider_id)
+        if not provider_cfg:
+            raise ApiError(404, "Provider tidak ditemukan.", code="provider_not_found")
+        base_url = provider_cfg.get("base_url") or ""
+        api_key = provider_cfg.get("api_key") or ""
+        if not base_url or not api_key:
+            raise ApiError(400, "Simpan Base URL dan API key provider terlebih dahulu.", code="provider_not_configured")
+        warning = None
+        catalog_errors = {}
+        try:
+            result = await providers.fetch_catalog(provider_cfg)
+            store.set_catalog(provider_id, result["catalog"], int(time.time()))
+            catalog_errors = result.get("errors", {})
+        except providers.ProviderError as exc:
+            warning = exc.message
+        except Exception as exc:
+            warning = f"Gagal memuat model: {exc}"
+        return {
+            "provider": store.provider_public(store.get_provider(provider_id)),
+            "warning": warning,
+            "catalog_errors": catalog_errors,
+        }
+
+    @router.delete("/providers/{provider_id}")
+    async def delete_provider(provider_id: str):
+        store = get_store()
+        if not store.get_provider(provider_id):
+            raise ApiError(404, "Provider tidak ditemukan.", code="provider_not_found")
+        store.delete_provider(provider_id)
+        return {"deleted": True}
+
+    # ---------- gateway types & gateways ----------
+
+    @router.get("/gateway/types")
+    async def gateway_types():
+        return {"types": gateway_types_public()}
+
+    @router.get("/gateways")
+    async def list_gateways():
+        store = get_store()
+        result = []
+        for gw in store.list_gateways():
+            gid = gw.get("id") or ""
+            result.append({
+                "settings": store.gateway_public(gw),
+                "status": hub.status(gid),
+            })
+        return {
+            "types": gateway_types_public(),
+            "gateways": result,
+        }
+
+    @router.post("/gateways")
+    async def create_gateway(body: GatewayCreate):
+        if body.type not in GATEWAY_TYPES:
+            raise ApiError(400, "Tipe gateway tidak dikenal.", code="invalid_gateway_type")
+        meta = gateway_type(body.type)
+        if meta.get("available") != "true":
+            raise ApiError(400, "Gateway ini segera hadir.", code="gateway_coming_soon")
+        store = get_store()
+        provider_id = body.provider_id or ""
+        if provider_id and not store.get_provider(provider_id):
+            raise ApiError(400, "Provider tidak ditemukan.", code="provider_not_found")
+        gateway = store.add_gateway(body.type, body.name, provider_id)
+        hub.get(gateway["id"])
+        return {
+            "settings": store.gateway_public(gateway),
+            "status": hub.status(gateway["id"]),
+        }
+
+    @router.get("/gateways/{gateway_id}")
+    async def get_gateway(gateway_id: str):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        return {
+            "settings": store.gateway_public(gateway),
+            "status": hub.status(gateway_id),
+            "logs": hub.logs(gateway_id),
+        }
+
+    @router.post("/gateways/{gateway_id}")
+    async def update_gateway(gateway_id: str, body: GatewayUpdate):
+        store = get_store()
+        current = store.get_gateway(gateway_id)
+        if not current or current.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+
+        changes = {}
+        if body.name is not None:
+            changes["name"] = body.name.strip() or current.get("name")
+        if body.enabled is not None:
+            changes["enabled"] = bool(body.enabled)
+        if body.provider_id is not None:
+            pid = body.provider_id.strip()
+            if pid and not store.get_provider(pid):
+                raise ApiError(400, "Provider tidak ditemukan.", code="provider_not_found")
+            changes["provider_id"] = pid
+
+        token = (body.discord_token or "").strip() if body.discord_token is not None else ""
+        # keep existing token if blank
+        if body.discord_token is not None and token:
+            changes["discord_token"] = token
+
+        if body.model is not None:
+            changes["model"] = body.model.strip()
+        if body.system_prompt is not None:
+            changes["system_prompt"] = body.system_prompt.strip()[:8000]
+
+        trigger = current.get("trigger") or "mention"
+        if body.trigger is not None:
+            trigger = body.trigger.strip().lower()
+            if trigger not in TRIGGERS:
+                raise ApiError(400, f"Trigger tidak dikenal: {trigger}", code="invalid_trigger")
+        changes["trigger"] = trigger
+
+        prefix = current.get("prefix") or "!ai"
+        if body.prefix is not None:
+            prefix = body.prefix.strip()
+        changes["prefix"] = prefix or "!ai"
+
+        channel_id = current.get("channel_id") or ""
+        if body.channel_id is not None:
+            channel_id = body.channel_id.strip()
+        if channel_id and not channel_id.isdigit():
+            raise ApiError(400, "Channel ID harus berupa angka.", code="invalid_channel")
+        if trigger == "all" and not channel_id:
+            raise ApiError(400, "Mode 'semua pesan' membutuhkan Channel ID agar bot tidak membalas di semua channel.", code="missing_channel")
+        changes["channel_id"] = channel_id
+
+        if body.max_history is not None:
+            changes["max_history"] = max(2, min(50, int(body.max_history)))
+        if body.max_tokens is not None:
+            changes["max_tokens"] = max(128, min(8192, int(body.max_tokens)))
+
+        for flag in ("internet_enabled", "image_enabled", "image_fallback", "voice_enabled", "voice_autojoin", "voice_listen"):
+            value = getattr(body, flag)
+            if value is not None:
+                changes[flag] = bool(value)
+
+        for key in ("web_search_model", "web_fetch_model", "image_model", "tts_model", "stt_model"):
+            value = getattr(body, key)
+            if value is not None:
+                changes[key] = value.strip()[:200]
+
+        if body.web_max_results is not None:
+            changes["web_max_results"] = max(1, min(10, int(body.web_max_results)))
+
+        if body.image_size is not None:
+            size = body.image_size.strip().lower()
+            if size not in IMAGE_SIZES:
+                raise ApiError(400, f"Ukuran gambar tidak didukung: {size}.", code="invalid_image_size")
+            changes["image_size"] = size
+
+        voice_channel = current.get("voice_channel_id") or ""
+        if body.voice_channel_id is not None:
+            voice_channel = body.voice_channel_id.strip()
+        if voice_channel and not voice_channel.isdigit():
+            raise ApiError(400, "Voice Channel ID harus berupa angka.", code="invalid_voice_channel")
+        changes["voice_channel_id"] = voice_channel
+
+        if body.voice_language is not None:
+            language = body.voice_language.strip().lower()
+            if (language and not language.isalpha()) or len(language) > 8:
+                raise ApiError(400, "Kode bahasa suara tidak valid.", code="invalid_language")
+            changes["voice_language"] = language
+
+        if body.image_token is not None:
+            changes["image_token"] = body.image_token.strip()
+
+        store.update_gateway(gateway_id, changes)
+        try:
+            await hub.sync_voice(gateway_id)
+        except Exception as exc:
+            # log not available on hub; ignore
+            pass
+        gateway = store.get_gateway(gateway_id)
+        return {
+            "settings": store.gateway_public(gateway),
+            "status": hub.status(gateway_id),
+        }
+
+    @router.post("/gateways/{gateway_id}/start")
+    async def start_gateway(gateway_id: str):
+        try:
+            status = await hub.start(gateway_id)
+        except ValueError as exc:
+            raise ApiError(400, str(exc), code="bot_not_ready") from exc
+        except KeyError as exc:
+            raise ApiError(404, str(exc), code="gateway_not_found") from exc
+        except Exception as exc:
+            raise ApiError(503, f"Bot gagal dijalankan: {exc}", code="bot_error") from exc
+        return {"status": status}
+
+    @router.post("/gateways/{gateway_id}/stop")
+    async def stop_gateway(gateway_id: str):
+        status = await hub.stop(gateway_id)
+        return {"status": status}
+
+    @router.post("/gateways/{gateway_id}/restart")
+    async def restart_gateway(gateway_id: str):
+        try:
+            status = await hub.restart(gateway_id)
+        except ValueError as exc:
+            raise ApiError(400, str(exc), code="bot_not_ready") from exc
+        except KeyError as exc:
+            raise ApiError(404, str(exc), code="gateway_not_found") from exc
+        except Exception as exc:
+            raise ApiError(503, f"Bot gagal dijalankan ulang: {exc}", code="bot_error") from exc
+        return {"status": status}
+
+    @router.delete("/gateways/{gateway_id}")
+    async def delete_gateway(gateway_id: str):
+        store = get_store()
+        gateway = store.get_gateway(gateway_id)
+        if not gateway or gateway.get("id") != gateway_id:
+            raise ApiError(404, "Gateway tidak ditemukan.", code="gateway_not_found")
+        try:
+            await hub.stop(gateway_id)
+        except Exception:
+            pass
+        hub.remove(gateway_id)
+        store.delete_gateway(gateway_id)
+        return {"deleted": True}
+
+    @router.get("/gateways/{gateway_id}/logs")
+    async def gateway_logs(gateway_id: str):
+        return {"logs": hub.logs(gateway_id)}
+
+    @router.post("/gateways/{gateway_id}/logs/clear")
+    async def clear_gateway_logs(gateway_id: str):
+        hub.clear_logs(gateway_id)
+        return {"logs": []}
+
+    # ---------- backward-compatible aliases (first gateway) ----------
+
+    @router.get("/gateway")
+    async def get_gateway_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            return {"settings": {}, "status": {}, "logs": []}
+        gw = gateways[0]
+        gid = gw.get("id") or ""
+        return {
+            "settings": store.gateway_public(gw),
+            "status": hub.status(gid),
+            "logs": hub.logs(gid),
+        }
+
+    @router.post("/gateway")
+    async def save_gateway_compat(body: GatewayUpdate):
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            raise ApiError(404, "Belum ada gateway.", code="gateway_not_found")
+        gid = gateways[0].get("id") or ""
+        # reuse update by calling endpoint function? duplicate minimal: delegate via direct call
+        return await update_gateway(gid, body)
+
+    @router.post("/gateway/start")
+    async def start_gateway_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            raise ApiError(404, "Belum ada gateway.", code="gateway_not_found")
+        return await start_gateway(gateways[0].get("id") or "")
+
+    @router.post("/gateway/stop")
+    async def stop_gateway_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            raise ApiError(404, "Belum ada gateway.", code="gateway_not_found")
+        return await stop_gateway(gateways[0].get("id") or "")
+
+    @router.post("/gateway/restart")
+    async def restart_gateway_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            raise ApiError(404, "Belum ada gateway.", code="gateway_not_found")
+        return await restart_gateway(gateways[0].get("id") or "")
+
+    @router.get("/gateway/logs")
+    async def gateway_logs_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            return {"logs": []}
+        return {"logs": hub.logs(gateways[0].get("id") or "")}
+
+    @router.post("/gateway/logs/clear")
+    async def clear_gateway_logs_compat():
+        store = get_store()
+        gateways = store.list_gateways()
+        if not gateways:
+            return {"logs": []}
+        hub.clear_logs(gateways[0].get("id") or "")
+        return {"logs": []}
 
     return router
-
-
-async def _playground_stream(engine: GatewayEngine, payload: dict):
-    queue: asyncio.Queue = asyncio.Queue()
-
-    def on_content(text: str):
-        queue.put_nowait(("content", text))
-
-    def on_reasoning(text: str):
-        queue.put_nowait(("reasoning", text))
-
-    async def runner():
-        try:
-            result = await engine.complete(
-                payload, on_content=on_content, on_reasoning=on_reasoning
-            )
-            await queue.put(("done", result))
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            await queue.put(("error", str(exc)))
-
-    task = asyncio.create_task(runner())
-    try:
-        while True:
-            kind, data = await queue.get()
-            if kind == "error":
-                yield _sse({"type": "error", "message": data})
-                break
-            if kind == "done":
-                yield _sse({"type": "done", "finish_reason": data.finish_reason})
-                break
-            yield _sse({"type": kind, "text": data})
-    finally:
-        if not task.done():
-            task.cancel()
-        try:
-            await task
-        except BaseException:
-            pass
-    yield "data: [DONE]\n\n"

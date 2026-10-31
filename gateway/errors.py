@@ -1,4 +1,4 @@
-"""Error berbentuk OpenAI agar klien seperti OpenCode bisa menampilkannya."""
+"""Error JSON sederhana untuk API admin."""
 from typing import Optional
 
 

@@ -1,19 +1,30 @@
-# open-masking
+# Open Gateway
 
-Gateway **OpenAI-compatible** untuk **chat.deepseek.com**, dengan web UI lokal untuk chat, API key, dan sesi browser. Semua berjalan lewat Playwright + Chrome di mesin kamu.
+Jembatan lokal antara **model AI OpenAI-compatible** dan **bot Discord**. Pilih model dari provider, atur cara bot merespons, lalu jalankan semuanya dari satu web UI.
 
-Satu perintah menjalankan semuanya:
+```
+AI Provider  →  Open Gateway  →  Bot Discord
+                        ├─ chat + riwayat
+                        ├─ internet (search & fetch)
+                        ├─ gambar
+                        └─ voice (dengar & ngobrol)
+```
+
+Satu perintah menjalankan server, web UI, dan bot:
 
 ```powershell
 py main.py
 ```
 
-Web UI terbuka otomatis di `http://127.0.0.1:8787`. Tidak ada CLI, subcommand, atau terminal chat.
+- Web UI: `http://127.0.0.1:8787` (aplikasi: `/app`)
+- Health check: `http://127.0.0.1:8787/health`
+- API admin: `http://127.0.0.1:8787/api/*` (hanya localhost)
 
 ## Prasyarat
 
 - Python 3.9+
-- Google Chrome terpasang (default `DS_CHANNEL=chrome`)
+- Bot Discord + token dari [Discord Developer Portal](https://discord.com/developers/applications)
+- **ffmpeg** untuk memutar suara di voice channel (`winget install Gyan.FFmpeg` di Windows). Tanpa ffmpeg, chat dan gambar tetap jalan.
 
 ## Instalasi
 
@@ -21,13 +32,7 @@ Web UI terbuka otomatis di `http://127.0.0.1:8787`. Tidak ada CLI, subcommand, a
 pip install -r requirements.txt
 ```
 
-Hanya jika Chrome tidak terpasang / ingin memakai Chromium bawaan Playwright:
-
-```powershell
-playwright install chromium
-```
-
-lalu set `DS_CHANNEL=chromium` di `.env`.
+Semua pengaturan disimpan di `data/config.json` (dibuat otomatis). Tidak ada file `.env`.
 
 ## Menjalankan
 
@@ -35,248 +40,134 @@ lalu set `DS_CHANNEL=chromium` di `.env`.
 py main.py
 ```
 
-- Server: `http://127.0.0.1:8787`
-- API base: `http://127.0.0.1:8787/v1`
-- Web UI: `http://127.0.0.1:8787`
+Browser terbuka otomatis. Set `OG_OPEN_BROWSER=0` bila tidak ingin browser dibuka.
 
-Ubah host/port lewat `.env` (`HOST`, `PORT`). Set `DS_OPEN_BROWSER=0` bila tidak ingin browser dibuka otomatis.
+## Menu di web UI
 
-## Tab di web UI
+### AI Provider
 
-### Playground
+Menghubungkan gateway ke provider OpenAI-compatible.
 
-Chat langsung ke DeepSeek lewat browser yang dikelola server. Playground memakai satu model (`deepseek-chat`) dengan dua mode terpisah: **Deep Think** (`auto` / aktif / nonaktif) dan **Search** (aktif / nonaktif). Playground tidak memerlukan API key karena hanya bisa diakses dari localhost.
+1. Isi **Base URL** (contoh: `http://localhost:20128`) dan **API key**.
+2. Klik **Simpan & muat model**.
+3. Gateway memuat semua jenis model: chat, image, TTS, STT, web, dan embedding. Tabel utama menampilkan model chat; model lain otomatis tersedia di pilihan tab Gateway.
+4. Gunakan kolom pencarian untuk menyaring model chat, lalu klik **Pakai** pada model yang diinginkan.
 
-### API Keys
+Model disimpan sebagai cache di `data/config.json`, jadi tetap tampil saat aplikasi dibuka kembali. Tombol **Muat ulang model** mengambil ulang daftar terbaru dari provider.
 
-Buat, lihat, dan revoke key untuk OpenCode/VS Code/klien lain. Key hanya ditampilkan **sekali** saat dibuat; yang disimpan di `data/api_keys.json` hanya hash SHA-256.
+### Gateway
 
-### Browser
+Menghubungkan model terpilih ke bot Discord.
 
-Kelola profil Chrome dan sesi DeepSeek:
+1. Tempel **Discord bot token**.
+2. Pilih **Model AI** (daftar berasal dari tab AI Provider).
+3. Atur **Pemicu balasan**:
+   - **Saat di-mention atau DM** — bot menjawab mention dan pesan langsung.
+   - **Prefix di semua channel** — bot menjawab pesan yang diawali prefix (default `!ai`).
+   - **Semua pesan di satu channel** — bot menjawab semua pesan di channel yang Channel ID-nya diisi.
+4. Atur **Riwayat pesan**, **Maks. token jawaban**, dan **System prompt** bila perlu.
+5. Atur fitur tambahan (bisa dinonaktifkan kapan saja):
+   - **Internet** — model memakai tool `web_search` dan `web_fetch` saat butuh info terbaru. Bila provider punya model search/fetch, isi kolomnya; jika tidak, gateway memakai DuckDuckGo Lite/Bing dan pembaca halaman bawaan.
+   - **Gambar** — model memakai tool `generate_image`. Ukuran bisa dipilih; bila model gambar provider gagal (kuota/entitlement), gateway otomatis memakai pollinations.ai selama **Cadangan gratis** aktif. Tanpa token, pollinations membatasi **1 gambar per 45 detik per IP**; isi `OG_POLLINATIONS_TOKEN` (gratis di [enter.pollinations.ai](https://enter.pollinations.ai)) untuk menghilangkan batas itu.
+   - **Suara** — bot bisa masuk voice channel, mendengarkan lawan bicara, dan menjawab dengan TTS. Isi **Voice Channel ID** atau gunakan `!ai join`. **TTS** memakai model text-to-speech provider; **STT** dipakai untuk transkripsi suara.
+6. Klik **Simpan konfigurasi**, lalu **Start**.
 
-- **Login** — membuka jendela Chrome terlihat, lalu menunggu login selesai.
-- **Restart** — tutup lalu buka ulang browser.
-- **Close** — hentikan browser.
-- **Reset profil** — hapus `data/chrome-profile` dan `data/cookies.json` (semua sesi login hilang).
+Tombol **Restart** memuat ulang bot dengan konfigurasi terbaru. **Stop** mematikan bot tanpa menutup server. Bot juga menyala otomatis saat aplikasi dibuka jika token sudah tersimpan.
 
-Login butuh jendela terlihat; setelah login, chat bisa tetap berjalan headless (`DS_HEADLESS=1`).
+Panel **Aktivitas** menampilkan log koneksi, pesan yang diproses, tool yang dipakai, dan error dari provider.
 
-### Connect
+## Setup bot Discord
 
-Base URL, daftar model, dan snippet siap salin untuk OpenCode, VS Code, dan cURL.
+1. Buka [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**.
+2. Tab **Bot** → aktifkan **Message Content Intent** (wajib; tanpa ini bot gagal start).
+3. Salin **Bot Token**.
+4. Tab **OAuth2 → URL Generator** → scope `bot`, izin minimal:
+   - Send Messages
+   - Read Message History
+   - Attach Files (untuk gambar)
+   - Connect + Speak (untuk voice channel)
+5. Buka URL hasil generator untuk mengundang bot ke server.
 
-## Model
+## Perintah di Discord
 
-Gateway menampilkan satu model kanonis: `deepseek-chat`. Mode tidak dibuat sebagai model terpisah, tetapi dikirim sebagai opsi per permintaan.
+| Perintah | Fungsi |
+| --- | --- |
+| `@bot halo` | Mengobrol dengan model (atau DM langsung ke bot) |
+| `@bot cari harga bitcoin` | Model otomatis memakai internet bila perlu |
+| `@bot buatkan gambar kucing astronot` | Model otomatis memakai tool gambar |
+| `!ai gambar <deskripsi>` | Membuat gambar langsung tanpa lewat model chat |
+| `!ai cari <kata kunci>` | Mencari di internet |
+| `!ai buka <url>` | Membaca isi sebuah halaman |
+| `!ai join [id]` | Masuk voice channel (atau channel tempat pengirim berada) |
+| `!ai leave` | Keluar dari voice channel |
+| `!ai dengar on\|off` | Mengaktifkan/mematikan mode mendengarkan |
+| `!ai voice` | Status voice bot |
+| `!ai reset` | Menghapus riwayat percakapan di channel |
+| `!ai model` | Menampilkan model dan fitur yang aktif |
+| `!ai ping` | Cek latensi bot |
+| `!ai help` | Menampilkan bantuan |
 
-| Opsi | Default | Keterangan |
+Prefix mengikuti pengaturan di tab Gateway. Riwayat disimpan terpisah per channel dan dibatasi oleh **Riwayat pesan**. Di voice channel, bot memakai segmentasi diam ~1,2 detik, lalu transkripsi, jawaban model, dan TTS.
+
+## Konfigurasi
+
+Semua konfigurasi disimpan di `data/config.json` dan dibuat otomatis bila belum ada. Host/port server juga ada di bagian `server` pada file tersebut. Token pollinations bisa diisi per gateway pada kolom "Token pollinations (opsional)". Folder `data/` diabaikan git.
+
+## Struktur
+
+```
+main.py                 Launcher server + web UI
+gateway/
+  config.py             Env, path, default
+  store.py              Persistensi data/config.json
+  provider.py           Klien chat, model, image, audio, web provider
+  agent.py              Loop tool-calling (search, fetch, gambar)
+  webtools.py           Pencarian & pembaca halaman tanpa API key
+  media.py              Gambar (dengan fallback), TTS, STT
+  voice.py              Voice channel: join, dengar, bicara
+  discord_bot.py        Manajer bot, perintah, riwayat, log
+  admin.py              API admin (localhost)
+  server.py             FastAPI + static UI
+  web/                  index.html, app.js, style.css, landing.html
+tests/                  Unit test
+data/                   config.json (gitignored)
+```
+
+## API admin
+
+Semua endpoint hanya bisa diakses dari localhost.
+
+| Method | Path | Fungsi |
 | --- | --- | --- |
-| `thinking` | `false` untuk `deepseek-chat` | Mengaktifkan Deep Think pada UI DeepSeek |
-| `search` | `false` | Mengaktifkan tombol Search/pencarian web di UI DeepSeek |
+| `GET` | `/api/status` | Status aplikasi, provider, bot, dan voice |
+| `GET` | `/api/provider` | Konfigurasi provider + katalog model per jenis |
+| `POST` | `/api/provider` | Simpan provider + muat katalog (`catalog_errors` berisi jenis yang gagal) |
+| `POST` | `/api/provider/refresh` | Muat ulang katalog model |
+| `GET` | `/api/gateway` | Pengaturan gateway, status, log |
+| `POST` | `/api/gateway` | Simpan pengaturan gateway |
+| `POST` | `/api/gateway/start` | Jalankan bot |
+| `POST` | `/api/gateway/stop` | Hentikan bot |
+| `POST` | `/api/gateway/restart` | Jalankan ulang bot |
+| `GET` | `/api/gateway/logs` | Log aktivitas |
+| `POST` | `/api/gateway/logs/clear` | Bersihkan log |
 
-Contoh request:
-
-```json
-{
-  "model": "deepseek-chat",
-  "thinking": true,
-  "search": false,
-  "messages": [{"role": "user", "content": "Jelaskan topik ini"}]
-}
-```
-
-Alias `web_search`, `enable_search`, serta `modelOptions.thinking/search` juga diterima untuk menyesuaikan format konfigurasi klien. ID lama `deepseek-reasoner` dan `deepseek-chat-thinking` tetap dipahami sebagai alias kompatibilitas jika masih tersimpan di konfigurasi klien, tetapi tidak lagi ditampilkan sebagai model terpisah.
-
-## Endpoint
-
-| Method | Path | Auth | Keterangan |
-| --- | --- | --- | --- |
-| `GET` | `/` | tidak | Web UI |
-| `GET` | `/health` | tidak | Status gateway |
-| `GET` | `/v1/models` | ya | Daftar model |
-| `POST` | `/v1/chat/completions` | ya | Chat completion (stream & non-stream) |
-| `GET` | `/api/status` | lokal | Status gateway + browser |
-| `GET/POST` | `/api/keys` | lokal | Daftar / buat API key |
-| `POST` | `/api/keys/{id}/revoke` | lokal | Revoke key |
-| `GET` | `/api/browser` | lokal | Status browser |
-| `POST` | `/api/browser/{login,restart,close,reset}` | lokal | Kontrol browser |
-| `POST` | `/api/playground/chat` | lokal | Chat SSE untuk UI |
-| `POST` | `/api/playground/reset` | lokal | Reset percakapan |
-| `GET` | `/api/connect` | lokal | Info koneksi |
-
-Auth `/v1/*` menerima salah satu:
-
-```http
-Authorization: Bearer sk-ds-...
-```
-
-```http
-X-API-Key: sk-ds-...
-```
-
-Endpoint `/api/*` hanya menerima request dari localhost.
-
-## Connect ke klien
-
-Ambil key dari tab **API Keys**, lalu gunakan:
-
-### OpenCode
-
-Salin `opencode.example.jsonc` ke `opencode.jsonc` proyek (atau config global), ganti `sk-ds-GANTI_DENGAN_KEY`, lalu set environment:
-
-```powershell
-$env:OPEN_MASKING_KEY = "sk-ds-..."
-opencode
-```
-
-Pilih satu model `open-masking/deepseek-chat` lewat `/models`. Gunakan variant `#deepthink`, `#search`, atau `#deepthink-search` untuk mengatur mode tanpa membuat model terpisah.
-
-### VS Code
-
-Buka Command Palette → **Chat: Manage Language Models**, atau salin `vscode.example.json` ke `chatLanguageModels.json`. Ganti `sk-ds-GANTI_DENGAN_KEY` dengan key kamu, lalu reload window dan buat chat baru. Konfigurasi contoh memakai satu model; ubah `modelOptions.thinking` atau `modelOptions.search` menjadi `true` untuk mengaktifkan mode tersebut.
-
-### cURL
-
-```powershell
-curl http://127.0.0.1:8787/v1/chat/completions `
-  -H "Authorization: Bearer sk-ds-..." `
-  -H "Content-Type: application/json" `
-  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"Halo"}]}'
-```
-
-## Streaming, tools, dan thinking
-
-- stream=true mengirim SSE berformat Chat Completions (data: {...} dan penutup data: [DONE]).
-- Balasan teks biasa dapat dialirkan langsung. Permintaan yang menyertakan tools di-buffer sampai jawaban selesai agar blok internal tool-call tidak bocor sebagai teks; setelah itu gateway mengirim delta tool_calls mengikuti format streaming OpenAI. Jadi streaming teks biasa real-time, sedangkan tool-call baru dikirim setelah parsing selesai.
-- Mode berpikir dikirim melalui reasoning_content ketika tersedia dari UI DeepSeek. usage merupakan estimasi berbasis karakter, bukan tokenizer resmi.
-
-### Tool calling
-
-Gateway menerima definisi fungsi modern tools, tool_choice (auto, none, required atau pilihan fungsi tertentu), dan parallel_tool_calls. Format lama functions / function_call juga dipetakan untuk client yang belum memakai tools. Respons modern berisi message.tool_calls dengan ID unik dan finish_reason: "tool_calls". Client harus menjalankan fungsi lokal/eksternal, lalu mengirim hasilnya sebagai pesan role=tool beserta tool_call_id; gateway tidak mengeksekusi tools milik client.
-
-Contoh definisi tool:
-
-```json
-{
-  "model": "deepseek-chat",
-  "messages": [{"role": "user", "content": "Cari waktu sekarang di Jakarta."}],
-  "tools": [{
-    "type": "function",
-    "function": {
-      "name": "get_time",
-      "description": "Ambil waktu saat ini untuk timezone tertentu.",
-      "parameters": {
-        "type": "object",
-        "properties": {"timezone": {"type": "string"}},
-        "required": ["timezone"]
-      }
-    }
-  }],
-  "tool_choice": "auto"
-}
-```
-
-**Batasan penting:** project ini mengendalikan chat.deepseek.com lewat browser, bukan memanggil endpoint inference resmi DeepSeek. Karena UI web tersebut tidak menyediakan kanal tool-call native yang dipakai API, gateway meminta model menulis blok tool-call lalu mem-parsenya menjadi format OpenAI. Parser memvalidasi nama tool dan sintaks JSON object, tetapi tidak menjamin kepatuhan penuh terhadap setiap JSON Schema atau strict mode; hasilnya tidak bisa dijamin identik dengan tool calling native API. Gunakan client yang mendukung endpoint POST /v1/chat/completions; endpoint Responses API belum diimplementasikan. Gateway hanya mengeluarkan satu choice (n=1).
-
-## Konfigurasi `.env`
-
-```env
-# Server
-HOST=127.0.0.1
-PORT=8787
-DS_OPEN_BROWSER=1
-DS_LOG_LEVEL=info
-
-# Data persisten
-DS_DATA_DIR=./data
-DS_PROFILE_DIR=./data/chrome-profile
-DS_API_KEYS_FILE=./data/api_keys.json
-
-# Browser
-DS_BASE_URL=https://chat.deepseek.com
-DS_CHANNEL=chrome
-DS_HEADLESS=0
-
-# Timeout dan batas prompt
-DS_LOGIN_TIMEOUT=300
-DS_REPLY_TIMEOUT=180
-DS_MAX_PROMPT_CHARS=60000
-
-# Opsional: cookie sesi DeepSeek
-DS_COOKIE=
-
-# Debug: simpan screenshot + HTML saat error
-DS_DEBUG=0
-```
-
-`DS_HEADLESS=1` menjalankan Chrome tanpa jendela, tetapi login lewat tab **Browser** tetap membuka jendela terlihat.
-
-Selector UI DeepSeek bisa berubah. Override lewat env, dipisahkan `||`:
-
-```env
-DS_INPUT_SELECTOR=textarea[placeholder]||#chat-input
-DS_SEND_SELECTOR=button[aria-label*='send' i]
-DS_STOP_SELECTOR=button[aria-label*='stop' i]
-DS_THINKING_SELECTOR=div[class*='ds-toggle-button']:has-text('Deep thinking')
-DS_REASONING_SELECTOR=.ds-think-content
-```
+Token Discord tidak pernah dikirim kembali ke browser; UI hanya menerima petunjuk 4 karakter terakhir.
 
 ## Troubleshooting
 
-### Chrome gagal dibuka
+- **Bot gagal start / `PrivilegedIntentsRequired`** — aktifkan **Message Content Intent** di Developer Portal, lalu Restart.
+- **`LoginFailure`** — token salah atau sudah di-reset. Simpan token baru lalu Restart.
+- **Provider 429 / FreeUsageLimitError** — kuota model gratis habis. Pilih model lain dari daftar.
+- **Provider 503 / 504** — model atau upstream sedang tidak tersedia. Coba lagi atau pilih model lain.
+- **Model tidak muncul** — cek Base URL berakhiran `/v1`, API key valid, lalu klik **Muat ulang model**.
+- **Bot tidak membalas** — pastikan bot sudah diundang, pemicu sesuai, dan model sudah dipilih.
+- **Gambar gagal di provider** — biasanya kuota model gambar habis. Biarkan **Cadangan gratis** aktif agar memakai pollinations.ai; tanpa token, pollinations hanya melayani 1 gambar / 45 detik per IP (isi `OG_POLLINATIONS_TOKEN` untuk menghapusnya).
+- **Suara tidak keluar** — pastikan `ffmpeg` ada di `PATH`, bot punya izin Connect + Speak, dan model TTS dipilih. Cek `!ai voice`.
+- **Bot tidak mendengar** — pastikan `discord-ext-voice-recv` dan `PyNaCl` terpasang, model STT dipilih, dan mode dengar aktif (`!ai dengar on`).
+- **Port dipakai** — ubah `PORT` di `.env`, lalu jalankan ulang.
 
-- Pastikan Chrome terpasang.
-- Tutup Chrome lain yang memakai profil yang sama (`data/chrome-profile`).
-- Untuk Chromium Playwright: `playwright install chromium`, lalu `DS_CHANNEL=chromium`.
-
-### Diminta login terus / sesi berakhir
-
-- Buka tab **Browser** → **Login**, selesaikan login di jendela Chrome.
-- Jika masih gagal, **Reset profil** lalu login ulang.
-- `DS_HEADLESS=1` tidak menghalangi login dari web UI; server memaksa jendela terlihat.
-
-### `401` dari gateway
-
-- Pastikan header `Authorization: Bearer <key>` atau `X-API-Key`.
-- Cek key masih aktif di tab **API Keys**.
-- Key hanya tampil sekali; jika hilang, buat key baru dan revoke yang lama.
-
-### `502 No BYOK model found` di VS Code
-
-- Pastikan konfigurasi hanya mendaftarkan satu model `deepseek-chat`, URL berakhir dengan `/v1/chat/completions`, dan API key masih aktif. Reload window lalu buat chat baru. Untuk mode, atur `modelOptions.thinking` atau `modelOptions.search` di konfigurasi model.
-- Jangan mengganti `name` provider setelah dipakai.
-
-### Deep Think atau Search tidak aktif
-
-- Pastikan UI akun DeepSeek menampilkan tombol Deep Think/Search.
-- Set `DS_DEBUG=1` untuk menyimpan screenshot/HTML ke `data/debug`.
-- Override `DS_THINKING_SELECTOR` atau `DS_SEARCH_SELECTOR` bila label tombol UI berubah.
-
-### VS Code menampilkan `No response was returned`
-
-- Gunakan konfigurasi terbaru dengan satu model `deepseek-chat`, lalu reload window VS Code.
-- Pastikan sesi Browser masih login dan tidak ada captcha/dialog di DeepSeek.
-- Pada request streaming, error otomasi dikirim sebagai chunk assistant yang valid dan ditutup dengan `finish_reason`, bukan objek JSON error mentah di tengah stream yang dapat dianggap klien sebagai respons kosong.
-
-### Balasan timeout
-
-- Naikkan `DS_REPLY_TIMEOUT`.
-- Pastikan tab DeepSeek tidak menampilkan dialog/captcha.
-- Request dengan tools menunggu hasil lengkap agar `tool_call` dapat diparsing.
-
-## Tes
+## Test
 
 ```powershell
 py -m unittest discover -s tests -v
 ```
-
-Tes tidak membuka browser; automation diuji manual lewat web UI.
-
-## Keamanan
-
-- Default bind `127.0.0.1`. Jangan bind ke `0.0.0.0` tanpa menambahkan autentikasi admin.
-- `data/chrome-profile`, `data/cookies.json`, dan `data/api_keys.json` berisi data sensitif — jangan dibagikan atau di-commit.
-- Satu sesi browser dipakai bersama oleh playground dan API; request diproses berurutan.
-
-Lisensi MIT.

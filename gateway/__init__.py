@@ -1,3 +1,3 @@
-"""Gateway OpenAI-compatible untuk chat.deepseek.com."""
+"""Open Gateway: jembatan model AI ke bot Discord."""
 
-__version__ = "0.2.1"
+__version__ = "1.0.0"
